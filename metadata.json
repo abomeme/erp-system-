@@ -1,0 +1,6 @@
+{
+  "name": "Vendor Ledger System",
+  "description": "An interactive, high-density vendor balance ledger and invoice tracking workspace with dynamic summaries, search/filters, and report exporting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
