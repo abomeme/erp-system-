@@ -786,7 +786,7 @@ export default function App() {
           
           link.href = url;
           // Prompt points it to downloads automatically via default browser behaviors
-          link.download = `Olad_Dawood_AutoBackup_${stamp}.sql`;
+          link.download = `Backup-${stamp}.sql`;
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
