@@ -376,10 +376,39 @@ export default function App() {
     }
     setActiveTab(tab);
   };
+
+  const handleSystemUpdate = async () => {
+    setIsUpdatingSystem(true);
+    setUpdateSystemStdout(null);
+    setUpdateSystemError(null);
+    triggerToast("🔄 جاري إطلاق وتحديث النظام (جاري تشغيل ملف update_system)...", "success");
+    
+    try {
+      const res = await fetch('/api/system-update');
+      const data = await res.json();
+      
+      if (res.status === 200 && data.status === 'success') {
+        setUpdateSystemStdout(data.stdout || "تمت جميع مراحل الترقية والدعم لمستودع Github بنجاح!");
+        triggerToast("✨ تم تحديث وترقية المنظومة بالكامل بنجاح!", "success");
+      } else {
+        setUpdateSystemError(data.message || data.error || "حدث خطأ غير متوقع أثناء تشغيل السكربت.");
+        triggerToast("⚠️ فشل تحديث النظام! يرجى فحص موجه الأوامر والأرصدة.", "err");
+      }
+    } catch (err: any) {
+      setUpdateSystemError(err.message || "فشل الاتصال بالخادم المحلي لتشغيل الاسكربت.");
+      triggerToast("❌ خطأ في الاتصال بخادم التحديث!", "err");
+    } finally {
+      setIsUpdatingSystem(false);
+    }
+  };
   const [activeContactId, setActiveContactId] = useState<string>('');
   const [contactSearchQuery, setContactSearchQuery] = useState<string>('');
   const [transactionSearchQuery, setTransactionSearchQuery] = useState<string>('');
   const [contactDebtFilter, setContactDebtFilter] = useState<'all' | 'has_debt' | 'balanced'>('all');
+
+  const [isUpdatingSystem, setIsUpdatingSystem] = useState<boolean>(false);
+  const [updateSystemStdout, setUpdateSystemStdout] = useState<string | null>(null);
+  const [updateSystemError, setUpdateSystemError] = useState<string | null>(null);
 
   const [settings, setSettings] = useState<SystemSettings>(() => {
     const saved = localStorage.getItem('erp_settings');
@@ -3689,6 +3718,81 @@ export default function App() {
                 );
               })()}
 
+            </div>
+
+            {/* CARD 3: AUTOMATED SYSTEM UPDATES FROM GITHUB */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 md:p-8 space-y-6 shadow-xs mt-6">
+              <div className="border-b border-slate-100 pb-4 flex justify-between items-center sm:flex-row flex-col gap-2">
+                <div>
+                  <h2 className="text-sm font-black text-slate-900 flex items-center gap-1.5 text-right">
+                    <ArrowLeftRight className="w-5 h-5 text-indigo-500" />
+                    <span>تحديث وترقية النظام التلقائي من مستودع Github 🔄</span>
+                  </h2>
+                  <p className="text-[11px] text-slate-500 mt-1 text-right">
+                    جلب كافة التحديثات والملفات الجديدة من المستودع السحابي، تثبيت الحزم التابعة (npm install) وإعادة بناء نسخة التوزيع (build) في لحظة واحدة.
+                  </p>
+                </div>
+                <div className="bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-xs font-bold text-emerald-800">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+                  <span>متصل بالمستودع السحابي</span>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200/80 p-5 rounded-2xl space-y-4 text-right">
+                <div className="text-xs text-slate-700 space-y-1.5 leading-relaxed">
+                  <p>عند النقر على الزر بالأسفل، سيقوم النظام بالعمليات التالية للتحديث الفوري:</p>
+                  <ul className="list-disc list-inside space-y-1 text-[11px] text-slate-650 mr-2">
+                    <li>تنفيذ أمر <code className="bg-slate-200/80 px-1 rounded font-mono text-[10px]">git pull</code> لجلب كافة التعديلات البرمجية الجديدة من المستودع صامتاً.</li>
+                    <li>تشغيل ملف التحديث التلقائي المطور <code className="bg-slate-200/80 px-1 rounded font-mono text-[10px]">update_system.bat</code> (أو السكربت المخصص للأجهزة والمخدمات) لترقية وحل التبعيات.</li>
+                    <li>تشغيل معالج تثبيت الحزم الجديدة وتنفيذ <code className="bg-slate-250 px-1 rounded font-mono text-[10px]">npm install</code> تلقائياً بدون تدخل يدوي.</li>
+                    <li>إعادة بناء ملفات التشغيل والـ Build بالكامل <code className="bg-slate-200/80 px-1 rounded font-mono text-[10px]">npm run build</code> لضمان استقرار التطبيق والسرعة الفائقة للأرصدة والمبيعات.</li>
+                  </ul>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                  <button
+                    onClick={handleSystemUpdate}
+                    disabled={isUpdatingSystem}
+                    type="button"
+                    className={`flex-1 flex items-center justify-center gap-2 text-xs font-black py-3 rounded-xl cursor-pointer shadow transition-all ${
+                      isUpdatingSystem 
+                        ? 'bg-slate-400 text-white cursor-not-allowed' 
+                        : 'bg-indigo-900 hover:bg-slate-800 text-amber-300'
+                    }`}
+                  >
+                    {isUpdatingSystem ? (
+                      <>
+                        <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                        <span>جاري جلب التحديثات وبناء وترقية النظام... (قد يستغرق 30-40 ثانية)</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>تحديث وترقية النظام الفورية وتشغيل ملف .bat التلقائي 🚀</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Display Logs */}
+                {updateSystemStdout && (
+                  <div className="space-y-1 mt-3">
+                    <label className="block text-[10px] font-black text-slate-500 mr-1 text-right">سجل الترقية الناجح (Console Logs):</label>
+                    <pre dir="ltr" className="bg-slate-900 text-emerald-400 p-4 rounded-xl text-[10px] font-mono leading-relaxed overflow-x-auto max-h-[180px] text-left">
+                      {updateSystemStdout}
+                    </pre>
+                  </div>
+                )}
+
+                {updateSystemError && (
+                  <div className="space-y-1 mt-3">
+                    <label className="block text-[10px] font-black text-rose-500 mr-1 text-right">سجل الأخطاء الفني والبيئي (Error Logs):</label>
+                    <pre dir="ltr" className="bg-rose-950 text-rose-250 p-4 rounded-xl text-[10px] font-mono leading-relaxed overflow-x-auto text-rose-200 text-left">
+                      {updateSystemError}
+                    </pre>
+                  </div>
+                )}
+
+              </div>
             </div>
 
           </div>
