@@ -68,6 +68,7 @@ import ExpensesTab from './components/ExpensesTab';
 import CustomerProfitTab from './components/CustomerProfitTab';
 import ProfitReportTab from './components/ProfitReportTab';
 import QuickInvoicesTab from './components/QuickInvoicesTab';
+import { BalanceSheetTab } from './components/BalanceSheetTab';
 
 import { generateSQLBackup } from './utils/backupGenerator';
 
@@ -94,6 +95,7 @@ const INITIAL_CONTACTS: Contact[] = [...INITIAL_VENDORS, ...INITIAL_CUSTOMERS, .
 
 export const ALL_SYSTEM_SCREENS: Record<string, string> = {
   quick_invoices: "بوابة الفواتير السريعة",
+  balance_sheet: "الميزانية العمومية والمركز المالي 📊",
   supplier: "الموردون وتوريد الفاكهة",
   customer: "العملاء والتحصيل المالي",
   worker: "إدارة العمال",
@@ -140,6 +142,7 @@ export const hasTabAccess = (user: any, tab: string): boolean => {
     case 'bank_transfers':
     case 'expenses':
     case 'daily_audit':
+    case 'balance_sheet':
       return !!perms.viewTreasury;
     case 'backup':
       return !!perms.manageBackup;
@@ -338,7 +341,7 @@ export default function App() {
 
 
   // --- UI CONTROL STATES ---
-  const [activeTab, setActiveTab] = useState<'quick_invoices' | 'supplier' | 'customer' | 'worker' | 'inventory' | 'bank_transfers' | 'expenses' | 'all_invoices' | 'daily_audit' | 'backup' | 'categories_admin' | 'users_permissions' | 'system_settings' | 'double_entry' | 'customer_profit' | 'item_profit'>('quick_invoices');
+  const [activeTab, setActiveTab] = useState<'quick_invoices' | 'balance_sheet' | 'supplier' | 'customer' | 'worker' | 'inventory' | 'bank_transfers' | 'expenses' | 'all_invoices' | 'daily_audit' | 'backup' | 'categories_admin' | 'users_permissions' | 'system_settings' | 'double_entry' | 'customer_profit' | 'item_profit'>('quick_invoices');
 
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
@@ -349,6 +352,7 @@ export default function App() {
 
   const TAB_PERMISSIONS: Record<string, keyof UserPermissions> = {
     quick_invoices: 'viewInvoices',
+    balance_sheet: 'viewTreasury',
     supplier: 'viewContacts',
     customer: 'viewContacts',
     worker: 'viewContacts',
@@ -2445,7 +2449,24 @@ export default function App() {
 
       {/* --- MAIN TABS NAV BAR NAVIGATION --- */}
       <section className="w-full max-w-7xl mx-auto px-4 mt-6 no-print" dir="rtl">
-        <div className="flex flex-wrap border-b-2 border-slate-200 select-none gap-1 bg-slate-100/60 p-1 rounded-t-xl">
+        {/* Mobile Dropdown Control for Superb Responsiveness */}
+        <div className="lg:hidden w-full mb-3">
+          <label className="block text-[11px] font-bold text-slate-500 mb-1">الذهاب السريع إلى الشاشة:</label>
+          <select 
+            value={activeTab} 
+            onChange={(e) => handleTabClick(e.target.value as any)}
+            className="w-full bg-white border border-slate-300 rounded-xl px-3.5 py-3 text-xs font-black text-slate-800 focus:outline-none shadow-xs"
+          >
+            {Object.keys(ALL_SYSTEM_SCREENS).map(key => {
+              if (hasTabAccess(currentUser, key)) {
+                return <option key={key} value={key}>{ALL_SYSTEM_SCREENS[key]}</option>;
+              }
+              return null;
+            })}
+          </select>
+        </div>
+
+        <div className="flex overflow-x-auto whitespace-nowrap border-b-2 border-slate-200 select-none gap-1 bg-slate-100/60 p-1 rounded-t-xl scrollbar-thin">
           
           {hasTabAccess(currentUser, 'quick_invoices') && (
             <button
@@ -2458,6 +2479,20 @@ export default function App() {
             >
               <FileText className="w-4 h-4 text-emerald-500 animate-pulse" />
               <span className="font-extrabold text-[11px]">بوابة الفواتير السريعة (مشتريات/مبيعات) ⭐</span>
+            </button>
+          )}
+
+          {hasTabAccess(currentUser, 'balance_sheet') && (
+            <button
+              onClick={() => handleTabClick('balance_sheet')}
+              className={`px-4 py-2.5 rounded-lg text-xs font-black cursor-pointer flex items-center gap-1.5 transition-all ${
+                activeTab === 'balance_sheet' 
+                  ? 'bg-indigo-900 text-amber-300 shadow-md font-black scale-[1.03]' 
+                  : 'text-slate-700 bg-white hover:text-slate-950 hover:bg-slate-50 border border-slate-200/50'
+              }`}
+            >
+              <Scale className="w-4 h-4 text-indigo-500" />
+              <span className="font-extrabold text-[11px]">الميزانية العمومية والمركز المالي 📊</span>
             </button>
           )}
 
@@ -2663,6 +2698,19 @@ export default function App() {
       {/* --- CONDITIONAL VIEWPORTS RENDERED BASED ON CHOICE --- */}
       <main className="w-full max-w-7xl mx-auto px-4 mt-5" dir="rtl">
         
+        {activeTab === 'balance_sheet' && (
+          <BalanceSheetTab
+            contacts={contacts}
+            ledgers={ledgers}
+            inventory={inventory}
+            expenses={expenses}
+            adjustments={adjustments}
+            settings={settings}
+            selectedYear={selectedYear}
+            triggerToast={triggerToast}
+          />
+        )}
+
         {activeTab === 'quick_invoices' && (
           <QuickInvoicesTab
             contacts={contacts}
