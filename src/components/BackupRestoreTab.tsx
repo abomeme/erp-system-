@@ -229,7 +229,7 @@ export default function BackupRestoreTab({
       const link = document.createElement('a');
       const stamp = new Date().toISOString().split('T')[0];
       link.href = url;
-      link.download = `Olad_Dawood_XAMPP_Backup_${stamp}.sql`;
+      link.download = `backup_${stamp}.sql`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

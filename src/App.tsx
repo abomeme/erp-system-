@@ -29,7 +29,13 @@ import {
   ShieldAlert,
   ShieldCheck,
   TrendingUp,
-  BarChart4
+  BarChart4,
+  AlertTriangle,
+  AlertOctagon,
+  Gift,
+  Calendar,
+  Infinity,
+  Key
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
@@ -409,6 +415,96 @@ export default function App() {
   const [isUpdatingSystem, setIsUpdatingSystem] = useState<boolean>(false);
   const [updateSystemStdout, setUpdateSystemStdout] = useState<string | null>(null);
   const [updateSystemError, setUpdateSystemError] = useState<string | null>(null);
+
+  // --- LICENSE / TRIAL SYSTEM STATE ---
+  const [showDeveloperModal, setShowDeveloperModal] = useState<boolean>(false);
+  const [developerKey, setDeveloperKey] = useState<string>('');
+  const [isDevUnlocked, setIsDevUnlocked] = useState<boolean>(() => {
+    return localStorage.getItem('erp_is_dev_unlocked') === 'true';
+  });
+
+  const handleDevKeyChange = (val: string) => {
+    setDeveloperKey(val);
+    const cleaned = val.trim().toLowerCase();
+    if (cleaned === 'abomeme' || cleaned === '3934' || cleaned === '123123') {
+      setIsDevUnlocked(true);
+      localStorage.setItem('erp_is_dev_unlocked', 'true');
+      triggerToast("🔓 تم التحقق من هوية المطور! تم فتح صلاحيات الترخيص والتنشيط بالكامل.", "success");
+    }
+  };
+
+  const handleDevLock = () => {
+    setIsDevUnlocked(false);
+    setDeveloperKey('');
+    localStorage.removeItem('erp_is_dev_unlocked');
+    triggerToast("🔒 تم قفل لوحة تنشيط الترخيص بنجاح.", "success");
+  };
+
+  const [trialStartDate, setTrialStartDate] = useState<string>(() => {
+    let saved = localStorage.getItem('free_trial_start_date');
+    if (!saved) {
+      saved = new Date().toISOString();
+      localStorage.setItem('free_trial_start_date', saved);
+    }
+    return saved;
+  });
+
+  const [trialDurationDays, setTrialDurationDays] = useState<number>(() => {
+    let saved = localStorage.getItem('free_trial_duration_days');
+    if (!saved) {
+      saved = '7';
+      localStorage.setItem('free_trial_duration_days', '7');
+    }
+    return parseInt(saved, 10);
+  });
+
+  const [showExpiryWarning, setShowExpiryWarning] = useState<boolean>(false);
+
+  // Helper to compute remaining days, expiration, etc.
+  const trialStats = useMemo(() => {
+    const isLifetime = trialDurationDays >= 30000;
+    const start = new Date(trialStartDate);
+    const end = new Date(start.getTime() + trialDurationDays * 24 * 60 * 60 * 1000);
+    const now = new Date();
+    const msLeft = isLifetime ? 99999999999999 : end.getTime() - now.getTime();
+    const daysLeft = isLifetime ? 999999 : Math.ceil(msLeft / (24 * 60 * 60 * 1000));
+    const isExpired = !isLifetime && msLeft <= 0;
+    return {
+      startDateStr: start.toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' }),
+      endDateStr: isLifetime ? 'دائم (مدى الحياة)' : end.toLocaleDateString('ar-EG', { year: 'numeric', month: 'long', day: 'numeric' }),
+      daysLeft: isLifetime ? 999999 : (daysLeft > 0 ? daysLeft : 0),
+      isExpired,
+      msLeft,
+      isLifetime
+    };
+  }, [trialStartDate, trialDurationDays]);
+
+  // Effect to check every hour (or periodically) to prompt warning
+  useEffect(() => {
+    const checkExpiryAlert = () => {
+      const { daysLeft, isExpired } = trialStats;
+      if (isExpired) {
+        setShowExpiryWarning(false);
+        return;
+      }
+
+      // If close to expiring (e.g. daysLeft <= 2)
+      if (daysLeft > 0 && daysLeft <= 2) {
+        const now = Date.now();
+        const lastAlert = parseInt(localStorage.getItem('last_expiry_alert_time') || '0', 10);
+        const oneHourInMs = 60 * 60 * 1000;
+
+        if (now - lastAlert >= oneHourInMs) {
+          setShowExpiryWarning(true);
+          localStorage.setItem('last_expiry_alert_time', now.toString());
+        }
+      }
+    };
+
+    checkExpiryAlert();
+    const interval = setInterval(checkExpiryAlert, 30000); // Check every 30 seconds
+    return () => clearInterval(interval);
+  }, [trialStats]);
 
   const [settings, setSettings] = useState<SystemSettings>(() => {
     const saved = localStorage.getItem('erp_settings');
@@ -2341,6 +2437,276 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-800 antialiased selection:bg-slate-900 selection:text-amber-300 pb-16">
       
+      {/* 1. COMPREHENSIVE TRIAL EXPIRATION FULL SCREEN LOCKER */}
+      {trialStats.isExpired && (
+        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-md z-[999] flex items-center justify-center p-4 selection:bg-indigo-600 selection:text-white" dir="rtl">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-10 max-w-lg w-full text-center space-y-6 shadow-2xl relative overflow-hidden">
+            <div className="absolute -top-10 -left-10 w-40 h-40 bg-rose-500/10 rounded-full blur-2xl"></div>
+            <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-indigo-500/10 rounded-full blur-2xl"></div>
+            
+            <div className="mx-auto w-16 h-16 bg-rose-950 border border-rose-500/30 text-rose-500 rounded-2xl flex items-center justify-center shadow-lg relative">
+              <span className="absolute inset-0 rounded-2xl bg-rose-500/25 animate-ping"></span>
+              <AlertOctagon className="w-8 h-8 relative z-10" />
+            </div>
+
+            <div className="space-y-2">
+              <h2 className="text-xl font-black text-white">⚠️ انتهت فترة الترخيص التجريبية المجانية</h2>
+              <p className="text-xs text-slate-400 leading-relaxed font-bold">
+                لقد انتهت فترة الـ {trialDurationDays} أيام المحددة لتشغيل المنظومة المجانية على هذا الجهاز. لمتابعة حسابات المبيعات والموردين والعملاء وأرصدة الصناديق والمخازن دون انقطاع، يرجى ترقية وترقية النظام أو تفعيل رخصة التمديد الجارية.
+              </p>
+            </div>
+
+            <div className="bg-slate-950/60 border border-slate-800 p-4 rounded-xl space-y-3">
+              <div className="flex justify-between items-center text-xs font-bold">
+                <span className="text-slate-400">تاريخ البدء البدئي:</span>
+                <span className="text-slate-200 font-mono">{trialStats.startDateStr}</span>
+              </div>
+              <div className="flex justify-between items-center text-xs font-bold">
+                <span className="text-slate-400">مدة الترخيص السابقة:</span>
+                <span className="text-rose-400 font-mono">{trialDurationDays} أيام (منتهية)</span>
+              </div>
+              <div className="flex justify-between items-center text-xs font-bold border-t border-slate-800/80 pt-2 text-slate-350">
+                <span className="text-slate-400">حالة البيانات الحالية:</span>
+                <span className="text-emerald-400">محفوظة بالكامل بـ LocalStorage وبأمان تام</span>
+              </div>
+            </div>
+
+            {isUpdatingSystem ? (
+              <div className="bg-indigo-950/40 border border-indigo-900 p-4 rounded-2xl text-center space-y-3 animate-pulse">
+                <div className="w-8 h-8 border-2 border-indigo-400 border-t-white rounded-full animate-spin mx-auto"></div>
+                <p className="text-xs font-bold text-amber-300">جاري جلب وحزم التحديثات من GitHub وإعادة بناء الواجهات...</p>
+                <p className="text-[10px] text-slate-400">قد يستغرق ذلك دقيقة واحدة لضمان بناء نسخة إنتاجية مستقرة.</p>
+              </div>
+            ) : !isDevUnlocked ? (
+              <div className="space-y-4 text-right">
+                <div className="bg-slate-950/40 p-5 rounded-2xl border border-slate-800 space-y-3">
+                  <label className="text-xs font-black text-slate-300 block flex items-center gap-1.5 justify-end">
+                    <span>كود التنشيط والترقية السري (خاص بالمطور)</span>
+                    <Key className="w-4 h-4 text-indigo-400" />
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="أدخل كود المطور للتنشيط والتحديث..."
+                    className="w-full bg-slate-900 border border-slate-750 text-slate-100 placeholder:text-slate-500 rounded-xl px-3.5 py-2.5 text-xs font-bold font-mono text-center focus:outline-none focus:ring-2 focus:ring-indigo-650"
+                    value={developerKey}
+                    onChange={(e) => handleDevKeyChange(e.target.value)}
+                  />
+                  <p className="text-[10px] text-slate-400 leading-normal text-center font-medium">
+                    خيارات تمديد التنشيط، ترقية ترخيص المنظومة، أو التحديث المباشر من GitHub تظهر فقط بعد كتابة كود المطور المعتمد لتفادي عبث المستخدمين بالصلاحيات.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2 w-full text-right bg-slate-950/20 border border-slate-800/80 p-4 rounded-2xl">
+                <div className="flex justify-between items-center text-xs font-black text-indigo-400 mb-2 border-b border-slate-800 pb-2">
+                  <button
+                    onClick={handleDevLock}
+                    type="button"
+                    className="text-[10px] bg-slate-800 hover:bg-slate-750 text-slate-300 px-2 py-1 rounded border border-slate-700 active:scale-95 transition-all"
+                  >
+                    إعادة قفل لوحة التحكم 🔒
+                  </button>
+                  <span>أدوات الإدارة والترخيص الفوري (مفتوح مسبقاً) 🛠️</span>
+                </div>
+
+                <button
+                  onClick={async () => {
+                    await handleSystemUpdate();
+                  }}
+                  type="button"
+                  className="w-full bg-indigo-600 hover:bg-indigo-500 border border-indigo-500 text-white font-black text-xs py-3 rounded-xl transition-all cursor-pointer shadow-lg active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <ArrowLeftRight className="w-4 h-4 text-amber-300 animate-pulse" />
+                  <span>تحديث وترقية المنظومة فوراً من مستودع Github 🚀</span>
+                </button>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                  <button
+                    onClick={() => {
+                      const now = new Date().toISOString();
+                      localStorage.setItem('free_trial_start_date', now);
+                      localStorage.setItem('free_trial_duration_days', '90');
+                      setTrialStartDate(now);
+                      setTrialDurationDays(90);
+                      triggerToast("🎁 تم تفعيل الترخيص المجاني لـ 3 أشهر بنجاح!", "success");
+                    }}
+                    type="button"
+                    className="p-3 bg-emerald-700 hover:bg-emerald-650 border border-emerald-600 rounded-xl text-white text-center transition-all cursor-pointer shadow active:scale-95 flex flex-col items-center justify-center gap-1"
+                  >
+                    <Gift className="w-4 h-4 text-amber-300" />
+                    <span className="text-[10px] font-black">تمديد 3 أشهر</span>
+                    <span className="text-[8px] text-emerald-250 font-mono">(90 يوماً مجاناً)</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      const now = new Date().toISOString();
+                      localStorage.setItem('free_trial_start_date', now);
+                      localStorage.setItem('free_trial_duration_days', '365');
+                      setTrialStartDate(now);
+                      setTrialDurationDays(365);
+                      triggerToast("📅 تم تنشيط الترخيص السنوي لمدة سنة كاملة بنجاح!", "success");
+                    }}
+                    type="button"
+                    className="p-3 bg-blue-700 hover:bg-blue-650 border border-blue-600 rounded-xl text-white text-center transition-all cursor-pointer shadow active:scale-95 flex flex-col items-center justify-center gap-1"
+                  >
+                    <Calendar className="w-4 h-4 text-amber-300" />
+                    <span className="text-[10px] font-black">تفعيل لمدة سنة</span>
+                    <span className="text-[8px] text-blue-250 font-mono">(365 يوماً كاملة)</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      const now = new Date().toISOString();
+                      localStorage.setItem('free_trial_start_date', now);
+                      localStorage.setItem('free_trial_duration_days', '36500');
+                      setTrialStartDate(now);
+                      setTrialDurationDays(36500);
+                      triggerToast("♾️ تم تفعيل الترخيص الدائم مدى الحياة بنجاح بالكامل!", "success");
+                    }}
+                    type="button"
+                    className="p-3 bg-amber-650 hover:bg-amber-600 border border-amber-500 rounded-xl text-slate-950 font-black text-center transition-all cursor-pointer shadow active:scale-95 flex flex-col items-center justify-center gap-1"
+                  >
+                    <Infinity className="w-4 h-4 text-slate-950" />
+                    <span className="text-[10px] font-black">مدى الحياة</span>
+                    <span className="text-[8px] text-slate-900 font-mono">(تنشيط غير محدود)</span>
+                  </button>
+                </div>
+
+                {/* Developer Reset Helper */}
+                <button
+                  onClick={() => {
+                    const now = new Date().toISOString();
+                    localStorage.setItem('free_trial_start_date', now);
+                    localStorage.setItem('free_trial_duration_days', '7');
+                    setTrialStartDate(now);
+                    setTrialDurationDays(7);
+                    triggerToast("🔄 تم إعادة ضبط الترخيص للـ 7 أيام الأصلية", "success");
+                  }}
+                  type="button"
+                  className="w-full bg-slate-850 hover:bg-slate-800 text-slate-400 text-[10px] py-1.5 rounded-lg transition-all cursor-pointer text-center underline"
+                >
+                  معاينة تجريبية سريعة: إرجاع العداد والتجربة لـ 7 أيام إضافية ↺
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 2. HOURLY WARNING ALERT MODAL (PROMPTS CLOSER TO EXPIRATION) */}
+      {showExpiryWarning && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[990] flex items-center justify-center p-4" dir="rtl">
+          <div className="bg-white border-2 border-amber-400 rounded-3xl p-6 max-w-md w-full shadow-2xl relative select-none">
+            <button 
+              onClick={() => setShowExpiryWarning(false)}
+              className="absolute top-4 left-4 p-1.5 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-650 transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="space-y-4">
+              <div className="flex items-center gap-2.5 text-amber-600">
+                <AlertTriangle className="w-6 h-6 animate-pulse text-amber-500" />
+                <h3 className="text-sm font-black text-slate-900">تنبيه: اقتراب انتهاء الفترة التجريبية المجانية ⚠️</h3>
+              </div>
+
+              <div className="text-xs text-slate-700 leading-relaxed font-bold space-y-2">
+                <p>
+                  نلفت عنايتكم بأن النسخة التجريبية المجانية على هذا الجهاز متبقي لها فقط:
+                  <span className="text-amber-600 bg-amber-50 px-2 py-0.5 rounded font-mono font-black border border-amber-200 mx-1">
+                    {trialStats.daysLeft} أيام
+                  </span> 
+                  للتوقف التلقائي والكامل لجميع النوافذ والمطابقات.
+                </p>
+                <p className="text-[11px] text-slate-500 font-normal">
+                  يرجى تفعيل الخطة التي تناسبك فوراً لمنع إقفال حسابات الفواتير والعهد الجارية:
+                </p>
+              </div>
+
+              {isUpdatingSystem ? (
+                <div className="bg-indigo-50 border border-indigo-150 p-3.5 rounded-xl text-center space-y-2">
+                  <div className="w-5 h-5 border-2 border-indigo-650 border-t-white rounded-full animate-spin mx-auto"></div>
+                  <p className="text-[11px] font-bold text-slate-700">جاري معالجة وتثبيت التحديثات والملفات من GitHub...</p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2 pt-2">
+                  <button
+                    onClick={async () => {
+                      await handleSystemUpdate();
+                      setShowExpiryWarning(false);
+                    }}
+                    type="button"
+                    className="w-full bg-indigo-900 hover:bg-indigo-950 border border-indigo-950 text-amber-300 font-black text-xs py-2.5 rounded-xl transition-all cursor-pointer shadow active:scale-95 flex items-center justify-center gap-1.5"
+                  >
+                    <ArrowLeftRight className="w-4 h-4 text-indigo-400" />
+                    <span>تحديث وترقية النظام فوراً لتثبيت النسخة الرسمية 🚀</span>
+                  </button>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      onClick={() => {
+                        const now = new Date().toISOString();
+                        localStorage.setItem('free_trial_start_date', now);
+                        localStorage.setItem('free_trial_duration_days', '90');
+                        setTrialStartDate(now);
+                        setTrialDurationDays(90);
+                        setShowExpiryWarning(false);
+                        triggerToast("🎁 تم تفعيل النسخة المجانية ל- 3 أشهر بنجاح!", "success");
+                      }}
+                      type="button"
+                      className="py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-250 text-emerald-800 font-black text-[10px] rounded-xl cursor-pointer active:scale-95 transition-all text-center"
+                    >
+                      🎁 3 أشهر
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        const now = new Date().toISOString();
+                        localStorage.setItem('free_trial_start_date', now);
+                        localStorage.setItem('free_trial_duration_days', '365');
+                        setTrialStartDate(now);
+                        setTrialDurationDays(365);
+                        setShowExpiryWarning(false);
+                        triggerToast("📅 تم تنشيط الترخيص السنوي لمدة سنة بنجاح!", "success");
+                      }}
+                      type="button"
+                      className="py-2 bg-blue-50 hover:bg-blue-100 border border-blue-250 text-blue-800 font-black text-[10px] rounded-xl cursor-pointer active:scale-95 transition-all text-center"
+                    >
+                      📅 سنة كاملة
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        const now = new Date().toISOString();
+                        localStorage.setItem('free_trial_start_date', now);
+                        localStorage.setItem('free_trial_duration_days', '36500');
+                        setTrialStartDate(now);
+                        setTrialDurationDays(36500);
+                        setShowExpiryWarning(false);
+                        triggerToast("♾️ تم تفعيل الترخيص الدائم مدى الحياة بنجاح!", "success");
+                      }}
+                      type="button"
+                      className="py-2 bg-amber-55 border border-amber-300 text-amber-900 font-black text-[10px] rounded-xl cursor-pointer active:scale-95 transition-all text-center shadow-xs"
+                    >
+                      ♾️ مدى الحياة
+                    </button>
+                  </div>
+
+                  <button
+                    onClick={() => setShowExpiryWarning(false)}
+                    type="button"
+                    className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] py-1.5 rounded-lg transition-colors cursor-pointer text-center"
+                  >
+                    إغلاق ومتابعة العمل مؤقتاً (سأقوم بالتحديث لاحقاً) ✕
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Toast Alert Drawer */}
       {toastMessage && (
         <div className="fixed top-5 left-5 z-[51] bg-slate-900 text-white rounded-lg border border-slate-700 p-3.5 shadow-25 animate-bounce font-bold text-xs select-none">
@@ -3316,7 +3682,7 @@ export default function App() {
                 </div>
                 <div className="bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-xs font-bold text-amber-800">
                   <Settings className="w-4 h-4 text-amber-600 animate-spin" />
-                  <span>الإعدادات العامة</span>
+                  <span>الضبط والترويسات</span>
                 </div>
               </div>
 
@@ -3366,7 +3732,7 @@ export default function App() {
                         name="invoiceHeaderEn" 
                         defaultValue={settings.invoiceHeaderEn} 
                         placeholder="Example: Al-Dawoud Fruits Trading Co."
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-850 focus:outline-none focus:border-slate-400 focus:bg-white transition-colors text-left"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-bold focus:outline-none focus:border-slate-400 focus:bg-white transition-colors text-left"
                         dir="ltr"
                       />
                     </div>
@@ -3428,7 +3794,7 @@ export default function App() {
                         defaultValue={settings.initialBankBalance} 
                         required
                         placeholder="مثال: 1200000"
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-805 text-slate-800 focus:outline-none focus:border-slate-400 focus:bg-white transition-colors font-mono"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-800 focus:outline-none focus:border-slate-400 focus:bg-white transition-colors font-mono"
                       />
                     </div>
                   </div>
@@ -4654,6 +5020,221 @@ export default function App() {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* 5.5 Developer License & Activation Control Modal */}
+      {showDeveloperModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-[10000] animate-fade-in no-print" dir="rtl">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-lg overflow-hidden transform scale-100 transition-transform">
+            
+            {/* Header */}
+            <div className="bg-slate-900 text-white p-4 flex justify-between items-center select-none border-b border-slate-800">
+              <h3 className="font-bold text-sm tracking-tight flex items-center gap-1.5">
+                <Key className="w-4 h-4 text-amber-400 animate-pulse" />
+                <span>إدارة تراخيص المنظومة ولوحة المطور</span>
+              </h3>
+              <button 
+                type="button"
+                onClick={() => setShowDeveloperModal(false)} 
+                className="text-slate-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5 text-right">
+              {isDevUnlocked ? (
+                <>
+                  <div className="flex justify-between items-center bg-indigo-50 border border-indigo-150 p-3 rounded-xl">
+                    <span className="text-xs font-black text-indigo-900">🛠️ لوحة تحكم المطور نشطة ومفتوحة الآن</span>
+                    <button
+                      onClick={handleDevLock}
+                      type="button"
+                      className="text-[10px] bg-indigo-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg font-bold transition-colors cursor-pointer"
+                    >
+                      قفل لوحة المطور 🔒
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/60 text-right space-y-2">
+                      <span className="text-[10px] font-black text-slate-400 block">تاريخ تنزيل/تثبيت النسخة</span>
+                      <input
+                        type="date"
+                        className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold text-slate-800 w-full focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                        value={trialStartDate.split('T')[0]}
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            try {
+                              const newDate = new Date(e.target.value).toISOString();
+                              setTrialStartDate(newDate);
+                              localStorage.setItem('free_trial_start_date', newDate);
+                              triggerToast("📁 تم تحديث تاريخ بدء النسخة بنجاح!", "success");
+                            } catch (err) {
+                              console.error(err);
+                            }
+                          }
+                        }}
+                      />
+                    </div>
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/60 text-right space-y-2">
+                      <span className="text-[10px] font-black text-slate-400 block">الفترة المتاحة للنسخة الجارية (بالأيام)</span>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="1"
+                          className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold text-slate-800 w-full focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                          value={trialDurationDays}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value, 10);
+                            if (!isNaN(val) && val >= 0) {
+                              setTrialDurationDays(val);
+                              localStorage.setItem('free_trial_duration_days', val.toString());
+                            }
+                          }}
+                        />
+                        <span className="text-xs text-slate-500 font-bold shrink-0">يوم</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/60 text-right space-y-1">
+                    <span className="text-[10px] font-black text-slate-400 block">بنية الصلاحية الراهنة</span>
+                    <p className={`text-xs font-black font-mono ${trialStats.isLifetime ? 'text-amber-600' : trialStats.daysLeft <= 2 ? 'text-rose-600' : 'text-emerald-700'}`}>
+                      {trialStats.isLifetime ? 'مفتوح إلى الأبد ♾️ (نشط كلي دائم)' : trialStats.isExpired ? 'انتهت الفترة تماماً ومقفل الميدان ❌' : `متبقي ${trialStats.daysLeft} يوم صلاحية للاستخدام`}
+                    </p>
+                  </div>
+
+                  <div className="bg-slate-50 border border-slate-200/80 p-5 rounded-2xl space-y-4">
+                    <div className="text-xs text-slate-700 leading-relaxed space-y-1">
+                      <p className="font-bold text-slate-850 text-indigo-950 flex items-center gap-1.5">
+                        <Gift className="w-4 h-4 text-emerald-500" />
+                        <span>الترقيات والخطط الفورية (تنشيط اللمسة الواحدة):</span>
+                      </p>
+                      <p className="text-[10px] text-slate-500 font-medium">
+                        حدد الخطة الفورية لتفعيل الدفاتر ونظام مبيعات الفاكهة والحصاد والعمال.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 pt-1">
+                      <button
+                        onClick={() => {
+                          const now = new Date().toISOString();
+                          localStorage.setItem('free_trial_start_date', now);
+                          localStorage.setItem('free_trial_duration_days', '90');
+                          setTrialStartDate(now);
+                          setTrialDurationDays(90);
+                          triggerToast("🎁 تم تنشيط النسخة المجانية الممتدة لـ 3 أشهر بنجاح!", "success");
+                        }}
+                        type="button"
+                        className="bg-emerald-700 hover:bg-emerald-650 border border-emerald-600 text-white font-black text-xs py-2.5 rounded-xl cursor-pointer active:scale-95 transition-all text-center flex items-center justify-center gap-1.5 shadow-sm"
+                      >
+                        <Gift className="w-4 h-4 text-amber-300" />
+                        <span>3 أشهر هدايا</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          const now = new Date().toISOString();
+                          localStorage.setItem('free_trial_start_date', now);
+                          localStorage.setItem('free_trial_duration_days', '365');
+                          setTrialStartDate(now);
+                          setTrialDurationDays(365);
+                          triggerToast("📅 تم تنشيط الترخيص بنجاح لمدة سنة كاملة (365 يوماً)!", "success");
+                        }}
+                        type="button"
+                        className="bg-indigo-600 hover:bg-indigo-500 border border-indigo-550 text-white font-black text-xs py-2.5 rounded-xl cursor-pointer active:scale-95 transition-all text-center flex items-center justify-center gap-1.5 shadow-sm"
+                      >
+                        <Calendar className="w-4 h-4 text-white" />
+                        <span>سنة كاملة</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          const now = new Date().toISOString();
+                          localStorage.setItem('free_trial_start_date', now);
+                          localStorage.setItem('free_trial_duration_days', '36500');
+                          setTrialStartDate(now);
+                          setTrialDurationDays(36500);
+                          triggerToast("♾️ تم تفعيل الترخيص الدائم مدى الحياة بنجاح بالكامل!", "success");
+                        }}
+                        type="button"
+                        className="col-span-2 bg-amber-600 hover:bg-amber-500 border border-amber-500 text-slate-950 font-black text-xs py-3 rounded-xl cursor-pointer active:scale-95 transition-all text-center flex items-center justify-center gap-1.5 shadow-sm"
+                      >
+                        <Infinity className="w-4 h-4 text-slate-950" />
+                        <span>تأمين ترخيص دائم مدى الحياة</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          const now = new Date().toISOString();
+                          localStorage.setItem('free_trial_start_date', now);
+                          localStorage.setItem('free_trial_duration_days', '7');
+                          setTrialStartDate(now);
+                          setTrialDurationDays(7);
+                          triggerToast("↺ تم إعادة التعيين التجريبي لـ 7 أيام", "success");
+                        }}
+                        type="button"
+                        className="col-span-2 bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 font-bold text-xs py-2 rounded-xl cursor-pointer active:scale-95 transition-all text-center"
+                      >
+                        <span>ضبط العداد للمعدل التجريبي الأصلي (7 أيام) ↺</span>
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-center space-y-4">
+                    <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-indigo-600">
+                      <Lock className="w-6 h-6 text-indigo-500" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <h4 className="text-slate-900 font-black text-sm">لوحة التحكم مقفلة 🔒</h4>
+                      <p className="text-[11px] text-slate-500 leading-relaxed px-4 font-bold">
+                        خيارات ترخيص وتنشيط النسخة وتمديد العداد مخصصة للمطور وصاحب العمل فقط حمايةً للمنظومة من أي تعديل غير مرخص. يرجى إدخال الكود المطور لفتح الصلاحيات:
+                      </p>
+                    </div>
+
+                    <div className="max-w-xs mx-auto">
+                      <input
+                        type="password"
+                        placeholder="أدخل كود المطور لفتح التعديل..."
+                        className="w-full bg-slate-50 border border-slate-250 text-slate-800 placeholder:text-slate-400 rounded-xl px-3 py-2.5 text-xs font-black font-mono text-center focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-550"
+                        value={developerKey}
+                        onChange={(e) => handleDevKeyChange(e.target.value)}
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="bg-slate-50 p-4 border-t border-slate-100 flex justify-end">
+              <button
+                onClick={() => setShowDeveloperModal(false)}
+                type="button"
+                className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs px-4 py-2 rounded-xl"
+              >
+                إغلاق النافذة
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* Subtle Blue Dot at bottom-left corner of screen for Developer Panel Access - Only inside System Settings Screen */}
+      {activeTab === 'system_settings' && (
+        <div className="fixed bottom-3 left-3 z-[9999] no-print group">
+          <button
+            onClick={() => setShowDeveloperModal(true)}
+            type="button"
+            title="بوابة تنشيط تراخيص النظام"
+            className="w-3 h-3 rounded-full bg-blue-500/40 hover:bg-blue-500 cursor-pointer shadow-[0_0_8px_rgba(59,130,246,0.5)] hover:scale-125 hover:shadow-[0_0_12px_rgba(59,130,246,0.85)] transition-all focus:outline-none animate-pulse"
+          />
         </div>
       )}
 
