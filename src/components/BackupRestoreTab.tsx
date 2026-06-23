@@ -522,7 +522,7 @@ export default function BackupRestoreTab({
               <a
                 href="/alyamama_erp_system.sql"
                 download="alyamama_erp_system.sql"
-                className="bg-emerald-650 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 cursor-pointer shadow-md transition-colors"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 cursor-pointer shadow-md transition-colors"
               >
                 <Download className="w-4 h-4 text-emerald-200" />
                 <span>تحميل ملف SQL الكامل (.sql)</span>

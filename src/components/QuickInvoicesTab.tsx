@@ -176,10 +176,10 @@ export default function QuickInvoicesTab({
 
             <button
               onClick={handleCreateSalesInvoice}
-              className="w-full bg-emerald-600 hover:bg-emerald-550 text-white font-black text-xs py-3 rounded-xl shadow-lg shadow-emerald-600/10 cursor-pointer active:scale-95 transition-all flex items-center justify-center gap-1.5"
+              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs py-3 rounded-xl shadow-lg shadow-emerald-600/10 cursor-pointer active:scale-95 transition-all flex items-center justify-center gap-1.5"
             >
               <Plus className="w-4 h-4" />
-              <span>فتح نموذج فاتورة المبيعات</span>
+              <span>إنشاء فاتورة مبيعات جديدة 🟢</span>
             </button>
           </div>
         </div>
@@ -231,10 +231,10 @@ export default function QuickInvoicesTab({
 
             <button
               onClick={handleCreatePurchaseInvoice}
-              className="w-full bg-blue-650 hover:bg-blue-600 text-white font-black text-xs py-3 rounded-xl shadow-lg shadow-blue-600/10 cursor-pointer active:scale-95 transition-all flex items-center justify-center gap-1.5"
+              className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black text-xs py-3 rounded-xl shadow-lg shadow-blue-600/10 cursor-pointer active:scale-95 transition-all flex items-center justify-center gap-1.5"
             >
               <Plus className="w-4 h-4" />
-              <span>فتح نموذج فاتورة المشتريات</span>
+              <span>إنشاء فاتورة مشتريات جديدة 🔵</span>
             </button>
           </div>
         </div>

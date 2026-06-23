@@ -78,24 +78,36 @@ export function BalanceSheetTab({
       let contactDebe = 0; // Invoiced or salary/advances
       let contactCred = 0; // Paid or payouts
 
-      if (c.type === 'worker') {
-        entries.forEach(e => {
+      entries.forEach(e => {
+        const pMethod = e.paymentMethod || 'cash';
+
+        if (c.type === 'worker') {
           const typeStr = e.type as string;
           if (typeStr === 'salary' || typeStr === 'invoice') {
             contactDebe += e.total;
+            if (e.paid) {
+              contactCred += e.paid;
+              if (pMethod === 'cash') ledgerTreasuryOut += e.paid;
+              else ledgerBankOut += e.paid;
+            }
           } else if (typeStr === 'payment' || typeStr === 'payout' || typeStr === 'advance') {
             contactCred += e.total;
+            if (e.isRepayment) {
+              if (pMethod === 'cash') ledgerTreasuryIn += e.total;
+              else ledgerBankIn += e.total;
+            } else {
+              if (pMethod === 'cash') ledgerTreasuryOut += e.total;
+              else ledgerBankOut += e.total;
+            }
           }
-        });
-      } else {
-        entries.forEach(e => {
+        } else {
           if (e.type === 'invoice') {
             contactDebe += e.total;
             contactCred += e.paid || 0;
 
             if (c.type === 'supplier') {
               totalPurchasesVal += e.total;
-              if ((e.paymentMethod || 'cash') === 'cash') ledgerTreasuryOut += e.paid;
+              if (pMethod === 'cash') ledgerTreasuryOut += e.paid;
               else ledgerBankOut += e.paid;
 
               // Invoice additional expenses
@@ -107,7 +119,7 @@ export function BalanceSheetTab({
               }
             } else if (c.type === 'customer') {
               totalSalesVal += e.total;
-              if ((e.paymentMethod || 'cash') === 'cash') ledgerTreasuryIn += e.paid;
+              if (pMethod === 'cash') ledgerTreasuryIn += e.paid;
               else ledgerBankIn += e.paid;
 
               // Calculate CGS (Cost of goods sold)
@@ -122,25 +134,17 @@ export function BalanceSheetTab({
               }
             }
           } else if (e.type === 'payment') {
-            const pMethod = e.paymentMethod || 'cash';
+            contactCred += e.total;
             if (c.type === 'supplier') {
               if (pMethod === 'cash') ledgerTreasuryOut += e.total;
               else ledgerBankOut += e.total;
             } else if (c.type === 'customer') {
               if (pMethod === 'cash') ledgerTreasuryIn += e.total;
               else ledgerBankIn += e.total;
-            } else if (c.type === 'worker') {
-              if (e.isRepayment) {
-                if (pMethod === 'cash') ledgerTreasuryIn += e.total;
-                else ledgerBankIn += e.total;
-              } else {
-                if (pMethod === 'cash') ledgerTreasuryOut += e.total;
-                else ledgerBankOut += e.total;
-              }
             }
           }
-        });
-      }
+        }
+      });
 
       const diff = contactDebe - contactCred;
       if (c.type === 'customer') {
@@ -179,12 +183,16 @@ export function BalanceSheetTab({
     let manualTreasuryOut = 0;
     let manualBankIn = 0;
     let manualBankOut = 0;
+    let totalDeposits = 0;
+    let totalWithdrawals = 0;
 
     adjustments.filter(m => m.date >= start && m.date <= end).forEach(m => {
       if (m.type === 'deposit') {
+        totalDeposits += m.amount;
         if (m.source === 'treasury') manualTreasuryIn += m.amount;
         else if (m.source === 'bank') manualBankIn += m.amount;
       } else if (m.type === 'withdrawal') {
+        totalWithdrawals += m.amount;
         if (m.source === 'treasury') manualTreasuryOut += m.amount;
         else if (m.source === 'bank') manualBankOut += m.amount;
       } else if (m.type === 'transfer') {
@@ -210,7 +218,7 @@ export function BalanceSheetTab({
     // Accounts summary
     const totalAssets = treasuryBalanceVal + bankBalanceVal + stockValuationVal + customerReceivables;
     const totalLiabilities = supplierPayables + workerPayables;
-    const totalEquity = beginningCapital + netProfitVal;
+    const totalEquity = beginningCapital + netProfitVal + totalDeposits - totalWithdrawals;
 
     // Difference checking to ensure double-entry equation balances perfectly
     // Assets = Liabilities + Equity

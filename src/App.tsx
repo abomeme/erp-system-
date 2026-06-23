@@ -391,6 +391,20 @@ export default function App() {
     
     try {
       const res = await fetch('/api/system-update');
+      
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('text/html')) {
+        throw new Error(
+          "لقد استقبل المتصفح صفحة HTML بدلاً من استجابة JSON.\n" +
+          "هذا يحدث لأنك تقوم بتشغيل النظام تحت خادم ويب أباتشي (XAMPP) كملفات ساكنة (Static).\n" +
+          "تحديث النظام مباشرة من المتصفح متاح فقط عند استخدام خادم Node.js النشط.\n\n" +
+          "💡 الحل لتحديث النظام في جهازك:\n" +
+          "1. اذهب لمجلد المشروع الرئيسي على الحاسوب.\n" +
+          "2. اضغط مرتين لتشغيل ملف (setup.bat).\n" +
+          "3. سيقوم الملف بتثبيت الحزم وبناء وتحديث ملفاتك تلقائياً ونقلها إلى مجلد htdocs."
+        );
+      }
+      
       const data = await res.json();
       
       if (res.status === 200 && data.status === 'success') {
@@ -401,7 +415,15 @@ export default function App() {
         triggerToast("⚠️ فشل تحديث النظام! يرجى فحص موجه الأوامر والأرصدة.", "err");
       }
     } catch (err: any) {
-      setUpdateSystemError(err.message || "فشل الاتصال بالخادم المحلي لتشغيل الاسكربت.");
+      let friendlyError = err.message || "";
+      if (friendlyError.includes("Unexpected token") || friendlyError.includes("is not valid JSON") || friendlyError.includes("JSON")) {
+        friendlyError = 
+          "خطأ في معالجة الاستجابة (غير متوافقة مع ميثود JSON).\n" +
+          "هذا يعني أنك تتصفح النظام حالياً من مسار XAMPP المحلي (Apache) كملفات ساكنة.\n\n" +
+          "💡 لتحديث النظام في بيئة XAMPP:\n" +
+          "يرجى تشغيل ملف (setup.bat) الموجود في مجلد المشروع الرئيسي على حاسوبك يدوياً.";
+      }
+      setUpdateSystemError(friendlyError || "فشل الاتصال بالخادم المحلي لتشغيل الاسكربت.");
       triggerToast("❌ خطأ في الاتصال بخادم التحديث!", "err");
     } finally {
       setIsUpdatingSystem(false);
@@ -1275,23 +1297,36 @@ export default function App() {
       let contactInvoices = 0;
       let contactPaid = 0;
 
-      if (c.type === 'worker') {
-        entries.forEach(e => {
-          if (e.type === 'salary' || e.type === 'invoice') {
+      entries.forEach(e => {
+        const pMethod = e.paymentMethod || 'cash';
+
+        if (c.type === 'worker') {
+          const typeStr = e.type as string;
+          if (typeStr === 'salary' || typeStr === 'invoice') {
             contactInvoices += e.total;
-          } else if (e.type === 'payment' || e.type === 'payout' || e.type === 'advance') {
+            if (e.paid) {
+              contactPaid += e.paid;
+              if (pMethod === 'cash') ledgerTreasuryOut += e.paid;
+              else ledgerBankOut += e.paid;
+            }
+          } else if (typeStr === 'payment' || typeStr === 'payout' || typeStr === 'advance') {
             contactPaid += e.total;
+            if (e.isRepayment) {
+              if (pMethod === 'cash') ledgerTreasuryIn += e.total;
+              else ledgerBankIn += e.total;
+            } else {
+              if (pMethod === 'cash') ledgerTreasuryOut += e.total;
+              else ledgerBankOut += e.total;
+            }
           }
-        });
-      } else {
-        entries.forEach(e => {
+        } else {
           if (e.type === 'invoice') {
             contactInvoices += e.total;
             contactPaid += e.paid || 0;
-            
+
             if (c.type === 'supplier') {
               totalPurchases += e.total;
-              if ((e.paymentMethod || 'cash') === 'cash') ledgerTreasuryOut += e.paid;
+              if (pMethod === 'cash') ledgerTreasuryOut += e.paid;
               else ledgerBankOut += e.paid;
 
               const invExp = (e.transportExpense || 0) + (e.carryingExpense || 0) + (e.otherInvoiceExpense || 0);
@@ -1302,7 +1337,7 @@ export default function App() {
               }
             } else if (c.type === 'customer') {
               totalSales += e.total;
-              if ((e.paymentMethod || 'cash') === 'cash') ledgerTreasuryIn += e.paid;
+              if (pMethod === 'cash') ledgerTreasuryIn += e.paid;
               else ledgerBankIn += e.paid;
 
               if (e.items) {
@@ -1316,25 +1351,17 @@ export default function App() {
               }
             }
           } else if (e.type === 'payment') {
-            const pMethod = e.paymentMethod || 'cash';
+            contactPaid += e.total;
             if (c.type === 'supplier') {
               if (pMethod === 'cash') ledgerTreasuryOut += e.total;
               else ledgerBankOut += e.total;
             } else if (c.type === 'customer') {
               if (pMethod === 'cash') ledgerTreasuryIn += e.total;
               else ledgerBankIn += e.total;
-            } else if (c.type === 'worker') {
-              if (e.isRepayment) {
-                if (pMethod === 'cash') ledgerTreasuryIn += e.total;
-                else ledgerBankIn += e.total;
-              } else {
-                if (pMethod === 'cash') ledgerTreasuryOut += e.total;
-                else ledgerBankOut += e.total;
-              }
             }
           }
-        });
-      }
+        }
+      });
 
       const diff = contactInvoices - contactPaid;
       if (c.type === 'customer' && diff > 0) {
@@ -2531,11 +2558,11 @@ export default function App() {
                       triggerToast("🎁 تم تفعيل الترخيص المجاني لـ 3 أشهر بنجاح!", "success");
                     }}
                     type="button"
-                    className="p-3 bg-emerald-700 hover:bg-emerald-650 border border-emerald-600 rounded-xl text-white text-center transition-all cursor-pointer shadow active:scale-95 flex flex-col items-center justify-center gap-1"
+                    className="p-3 bg-emerald-700 hover:bg-emerald-600 border border-emerald-600 rounded-xl text-white text-center transition-all cursor-pointer shadow active:scale-95 flex flex-col items-center justify-center gap-1"
                   >
                     <Gift className="w-4 h-4 text-amber-300" />
                     <span className="text-[10px] font-black">تمديد 3 أشهر</span>
-                    <span className="text-[8px] text-emerald-250 font-mono">(90 يوماً مجاناً)</span>
+                    <span className="text-[8px] text-emerald-200 font-mono">(90 يوماً مجاناً)</span>
                   </button>
 
                   <button
@@ -4346,7 +4373,7 @@ export default function App() {
                             setShowInvoiceModal(true);
                           }}
                           className={`px-3.5 py-2 rounded-lg text-xs font-black flex items-center gap-1 cursor-pointer shadow-md text-white ${
-                            activeContact.type === 'supplier' ? 'bg-blue-600 hover:bg-blue-500' : 'bg-emerald-650 hover:bg-emerald-500'
+                            activeContact.type === 'supplier' ? 'bg-blue-600 hover:bg-blue-500' : 'bg-emerald-600 hover:bg-emerald-500'
                           }`}
                         >
                           <Plus className="w-3.5 h-3.5" />
@@ -4529,7 +4556,7 @@ export default function App() {
                               />
                               <button
                                 type="submit"
-                                className="bg-emerald-650 hover:bg-emerald-700 text-white font-black text-[11px] px-3 py-1 rounded shrink-0 cursor-pointer"
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[11px] px-3 py-1 rounded shrink-0 cursor-pointer"
                               >
                                 سداد سلفية
                               </button>
@@ -4540,7 +4567,7 @@ export default function App() {
                                 value={workerRepayDescription}
                                 onChange={(e) => setWorkerRepayDescription(e.target.value)}
                                 placeholder="البيان (مثال: سداد سلفية، إيداع أمانة)"
-                                className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px] focus:outline-none focus:border-emerald-650 font-semibold"
+                                className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px] focus:outline-none focus:border-emerald-600 font-semibold"
                               />
                             </div>
                           </form>
@@ -4940,7 +4967,7 @@ export default function App() {
                 </button>
                 <button 
                   type="submit" 
-                  className="bg-blue-650 bg-blue-600 text-white px-4 py-1.5 rounded font-black shadow-sm cursor-pointer"
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded font-black shadow-sm cursor-pointer"
                 >
                   إبرام الحساب والدفتر
                 </button>
@@ -5128,7 +5155,7 @@ export default function App() {
                           triggerToast("🎁 تم تنشيط النسخة المجانية الممتدة لـ 3 أشهر بنجاح!", "success");
                         }}
                         type="button"
-                        className="bg-emerald-700 hover:bg-emerald-650 border border-emerald-600 text-white font-black text-xs py-2.5 rounded-xl cursor-pointer active:scale-95 transition-all text-center flex items-center justify-center gap-1.5 shadow-sm"
+                        className="bg-emerald-700 hover:bg-emerald-600 border border-emerald-600 text-white font-black text-xs py-2.5 rounded-xl cursor-pointer active:scale-95 transition-all text-center flex items-center justify-center gap-1.5 shadow-sm"
                       >
                         <Gift className="w-4 h-4 text-amber-300" />
                         <span>3 أشهر هدايا</span>

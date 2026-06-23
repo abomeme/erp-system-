@@ -444,7 +444,7 @@ export default function InventoryTab({
           <button
             onClick={() => { setPane('p_manager'); setSearchQuery(''); }}
             className={`flex-1 md:flex-none px-4 py-1.5 rounded-md font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer ${
-              pane === 'p_manager' ? 'bg-emerald-650 text-white shadow-md' : 'text-slate-300 hover:text-white'
+              pane === 'p_manager' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-300 hover:text-white'
             }`}
           >
             <Tag className="w-3.5 h-3.5" />
