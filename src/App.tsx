@@ -100,13 +100,14 @@ import { TRANSLATIONS, replaceOklchInString, withSafePDFStyles } from './utils';
 const INITIAL_CONTACTS: Contact[] = [...INITIAL_VENDORS, ...INITIAL_CUSTOMERS, ...INITIAL_WORKERS];
 
 export const ALL_SYSTEM_SCREENS: Record<string, string> = {
-  quick_invoices: "بوابة الفواتير السريعة",
-  balance_sheet: "الميزانية العمومية والمركز المالي 📊",
+  quick_invoices: "بوابة الفواتير السريعة (مشتريات\\مبيعات)",
+  categories_admin: "إدارة الأصناف والصفات",
   supplier: "الموردون وتوريد الفاكهة",
   customer: "العملاء والتحصيل المالي",
-  worker: "إدارة العمال",
   inventory: "المخازن وإدارة الأسعار",
   bank_transfers: "الخزينة والحساب البنكي",
+  balance_sheet: "الميزانية العمومية والمركز المالي 📊",
+  worker: "إدارة العمال",
   expenses: "شاشة المنصرفات",
   double_entry: "القيود المحاسبية اليدوية",
   all_invoices: "سجل الفواتير والطباعة الجماعية",
@@ -114,7 +115,6 @@ export const ALL_SYSTEM_SCREENS: Record<string, string> = {
   item_profit: "تحليل الأرباح والأصناف",
   daily_audit: "المطابقة والمحاسبة اليومية",
   backup: "النسخ الاحتياطي وحماية السندات",
-  categories_admin: "إدارة الأصناف والصفات",
   users_permissions: "صلاحيات المستخدمين",
   system_settings: "إعدادات النظام والماليات",
 };
@@ -745,6 +745,8 @@ export default function App() {
   const [workerRepayDescription, setWorkerRepayDescription] = useState<string>('');
   const [workerSalaryMonth, setWorkerSalaryMonth] = useState<string>('');
   const [workerSalaryAmount, setWorkerSalaryAmount] = useState<string>('');
+  const [workerAdvanceMethod, setWorkerAdvanceMethod] = useState<'cash' | 'bank'>('cash');
+  const [workerRepayMethod, setWorkerRepayMethod] = useState<'cash' | 'bank'>('cash');
 
   // Toast notifications for reactive feedback
   const [toastMessage, setToastMessage] = useState<string>('');
@@ -1845,11 +1847,11 @@ export default function App() {
       type: 'payment',
       date: new Date().toISOString().split('T')[0],
       number: `ADV-${Math.floor(1000 + Math.random()*8999)}`,
-      description: "صرف سلفية مالية للعامل",
+      description: `سحب سلفية للعامل (${workerAdvanceMethod === 'cash' ? 'من الخزنة' : 'من البنك'})`,
       total: amt,
       paid: amt,
-      paymentMethod: 'cash',
-      paymentRef: 'صندوق نقدي',
+      paymentMethod: workerAdvanceMethod,
+      paymentRef: workerAdvanceMethod === 'cash' ? 'صندوق نقدي' : 'حساب بنكي',
       accountantName: currentUser ? currentUser.fullName : "المحاسب العام"
     };
 
@@ -1860,16 +1862,21 @@ export default function App() {
     };
 
     // Validate balances
-    const { treasuryBalance: simT } = simulateBalances(nextLedgers, adjustments, expenses);
-    if (simT < 0) {
+    const { treasuryBalance: simT, bankBalance: simB } = simulateBalances(nextLedgers, adjustments, expenses);
+    if (workerAdvanceMethod === 'cash' && simT < 0) {
       triggerToast("⚠️ عذراً: رصيد الخزنة لا يقبل صرف السلف لعدم كفاية السيولة النقدية مسبقاً!", "err");
-      alert(`⚠️ لا يمكن إتمام العملية: ميزانية السلفية المالية المطلوب صرفها (${amt.toLocaleString()} ج.س) أكبر من المتوفر في الخزنة.`);
+      alert(`⚠️ لا يمكن إتمام العملية: قيمة السلفية المطلوبة للخصم من الخزنة الميدانية (${amt.toLocaleString()} ج.س) أكبر من الرصيد المتوفر بالخزنة.`);
+      return;
+    }
+    if (workerAdvanceMethod === 'bank' && simB < 0) {
+      triggerToast("⚠️ عذراً: الرصيد البنكي لا يقبل صرف السلف لعدم كفاية الرصيد مسبقاً!", "err");
+      alert(`⚠️ لا يمكن إتمام العملية: قيمة السلفية المطلوبة للخصم من الحساب البنكي (${amt.toLocaleString()} ج.س) أكبر من الرصيد المتوفر بالبنك.`);
       return;
     }
 
     setLedgers(nextLedgers);
     setWorkerAdvanceAmount('');
-    triggerToast("تم صرف وقيد السلفية للعامل بنجاح واحتسابها بالحصيلة");
+    triggerToast("تم سحب وقيد السلفية للعامل بنجاح واحتساب الأثر المالي");
   };
 
   const handleAddWorkerRepay = (e: React.FormEvent) => {
@@ -1886,11 +1893,11 @@ export default function App() {
       type: 'payment',
       date: new Date().toISOString().split('T')[0],
       number: `REPAY-${Math.floor(1000 + Math.random()*8999)}`,
-      description: workerRepayDescription.trim() || "سداد سلفية من العامل (إيداع خزينة)",
+      description: workerRepayDescription.trim() || `إيداع مال للعامل (${workerRepayMethod === 'cash' ? 'إلى الخزنة' : 'إلى البنك'})`,
       total: amt,
       paid: amt,
-      paymentMethod: 'cash',
-      paymentRef: 'صندوق نقدي',
+      paymentMethod: workerRepayMethod,
+      paymentRef: workerRepayMethod === 'cash' ? 'صندوق نقدي' : 'حساب بنكي',
       isRepayment: true,
       accountantName: currentUser ? currentUser.fullName : "المحاسب العام"
     };
@@ -1903,7 +1910,7 @@ export default function App() {
 
     setWorkerRepayAmount('');
     setWorkerRepayDescription('');
-    triggerToast("تم إثبات سداد السلفية وإيداع المبلغ بالخزينة بنجاح");
+    triggerToast("تم إثبات إيداع مال للعامل بنجاح واحتساب الأثر المالي بالخزينة/البنك");
   };
 
   const handleDisburseWorkerSalaryMonth = (e: React.FormEvent) => {
@@ -2904,17 +2911,17 @@ export default function App() {
             </button>
           )}
 
-          {hasTabAccess(currentUser, 'balance_sheet') && (
+          {hasTabAccess(currentUser, 'categories_admin') && (
             <button
-              onClick={() => handleTabClick('balance_sheet')}
-              className={`px-4 py-2.5 rounded-lg text-xs font-black cursor-pointer flex items-center gap-1.5 transition-all ${
-                activeTab === 'balance_sheet' 
-                  ? 'bg-indigo-900 text-amber-300 shadow-md font-black scale-[1.03]' 
-                  : 'text-slate-700 bg-white hover:text-slate-950 hover:bg-slate-50 border border-slate-200/50'
+              onClick={() => handleTabClick('categories_admin')}
+              className={`px-4 py-2.5 rounded-lg font-bold text-xs cursor-pointer flex items-center gap-1.5 transition-all ${
+                activeTab === 'categories_admin' 
+                  ? 'bg-slate-900 text-amber-400 shadow-xs font-black' 
+                  : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'
               }`}
             >
-              <Scale className="w-4 h-4 text-indigo-500" />
-              <span className="font-extrabold text-[11px]">الميزانية العمومية والمركز المالي 📊</span>
+              <Settings className="w-4 h-4 text-amber-500" />
+              <span>إدارة الأصناف والصفات</span>
             </button>
           )}
 
@@ -2946,20 +2953,6 @@ export default function App() {
             </button>
           )}
 
-          {hasTabAccess(currentUser, 'worker') && (
-            <button
-              onClick={() => handleTabClick('worker')}
-              className={`px-4 py-2.5 rounded-lg font-bold text-xs cursor-pointer flex items-center gap-1.5 transition-all ${
-                activeTab === 'worker' 
-                  ? 'bg-slate-900 text-amber-400 shadow-xs font-black' 
-                  : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'
-              }`}
-            >
-              <Users className="w-4 h-4 text-purple-600" />
-              <span>إدارة العمال</span>
-            </button>
-          )}
-
           {hasTabAccess(currentUser, 'inventory') && (
             <button
               onClick={() => handleTabClick('inventory')}
@@ -2985,6 +2978,34 @@ export default function App() {
             >
               <Coins className="w-4 h-4 text-orange-500 animate-pulse" />
               <span>الخزينة والحساب البنكي</span>
+            </button>
+          )}
+
+          {hasTabAccess(currentUser, 'balance_sheet') && (
+            <button
+              onClick={() => handleTabClick('balance_sheet')}
+              className={`px-4 py-2.5 rounded-lg text-xs font-black cursor-pointer flex items-center gap-1.5 transition-all ${
+                activeTab === 'balance_sheet' 
+                  ? 'bg-indigo-900 text-amber-300 shadow-md font-black scale-[1.03]' 
+                  : 'text-slate-700 bg-white hover:text-slate-950 hover:bg-slate-50 border border-slate-200/50'
+              }`}
+            >
+              <Scale className="w-4 h-4 text-indigo-500" />
+              <span className="font-extrabold text-[11px]">الميزانية العمومية والمركز المالي 📊</span>
+            </button>
+          )}
+
+          {hasTabAccess(currentUser, 'worker') && (
+            <button
+              onClick={() => handleTabClick('worker')}
+              className={`px-4 py-2.5 rounded-lg font-bold text-xs cursor-pointer flex items-center gap-1.5 transition-all ${
+                activeTab === 'worker' 
+                  ? 'bg-slate-900 text-amber-400 shadow-xs font-black' 
+                  : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'
+              }`}
+            >
+              <Users className="w-4 h-4 text-purple-600" />
+              <span>إدارة العمال</span>
             </button>
           )}
 
@@ -3069,20 +3090,6 @@ export default function App() {
             >
               <FolderLock className="w-4 h-4 text-rose-500" />
               <span>النسخ الاحتياطي وحماية السندات</span>
-            </button>
-          )}
-
-          {hasTabAccess(currentUser, 'categories_admin') && (
-            <button
-              onClick={() => handleTabClick('categories_admin')}
-              className={`px-4 py-2.5 rounded-lg font-bold text-xs cursor-pointer flex items-center gap-1.5 transition-all ${
-                activeTab === 'categories_admin' 
-                  ? 'bg-slate-900 text-amber-400 shadow-xs font-black' 
-                  : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'
-              }`}
-            >
-              <Settings className="w-4 h-4 text-amber-500" />
-              <span>إدارة الأصناف والصفات</span>
             </button>
           )}
 
@@ -4520,8 +4527,21 @@ export default function App() {
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                           {/* 1. السلفية */}
-                          <form onSubmit={handleAddWorkerAdvance} className="space-y-1.5 bg-white p-3 rounded-lg border border-slate-200">
-                            <label className="block text-[10px] font-black text-slate-500">تقديم سلفية جديدة للعامل (خصم)</label>
+                          <form onSubmit={handleAddWorkerAdvance} className="space-y-2 bg-white p-3 rounded-lg border border-slate-200">
+                            <label className="block text-[10px] font-black text-slate-500">سحب سلفية للعامل (سحب مالي)</label>
+                            
+                            <div className="space-y-1">
+                              <label className="block text-[8px] font-bold text-slate-400">مصدر السلفية:</label>
+                              <select
+                                value={workerAdvanceMethod}
+                                onChange={(e) => setWorkerAdvanceMethod(e.target.value as 'cash' | 'bank')}
+                                className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px] font-bold text-slate-700"
+                              >
+                                <option value="cash">🏦 الخزنة ({globalDashboardStats.treasuryBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })} ج.س)</option>
+                                <option value="bank">💳 البنك ({globalDashboardStats.bankBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })} ج.س)</option>
+                              </select>
+                            </div>
+
                             <div className="flex gap-1.5">
                               <input
                                 type="number"
@@ -4534,16 +4554,29 @@ export default function App() {
                               />
                               <button
                                 type="submit"
-                                className="bg-red-600 hover:bg-red-700 text-white font-black text-[11px] px-3 py-1 rounded shrink-0 cursor-pointer"
+                                className="bg-red-650 hover:bg-red-700 text-white font-black text-[11px] px-3 py-1 rounded shrink-0 cursor-pointer"
                               >
-                                صرف سلفية
+                                سحب سلفية للعامل
                               </button>
                             </div>
                           </form>
 
                           {/* 2. سداد سلفية */}
                           <form onSubmit={handleAddWorkerRepay} className="space-y-2 bg-white p-3 rounded-lg border border-slate-200">
-                            <label className="block text-[10px] font-black text-slate-500">سداد سلفية</label>
+                            <label className="block text-[10px] font-black text-slate-500">إيداع مال للعامل (إيداع مالي)</label>
+                            
+                            <div className="space-y-1">
+                              <label className="block text-[8px] font-bold text-slate-400">مستودع الإيداع:</label>
+                              <select
+                                value={workerRepayMethod}
+                                onChange={(e) => setWorkerRepayMethod(e.target.value as 'cash' | 'bank')}
+                                className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px] font-bold text-slate-700"
+                              >
+                                <option value="cash">🏦 الخزنة ({globalDashboardStats.treasuryBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })} ج.س)</option>
+                                <option value="bank">💳 البنك ({globalDashboardStats.bankBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })} ج.س)</option>
+                              </select>
+                            </div>
+
                             <div className="flex gap-1.5">
                               <input
                                 type="number"
@@ -4556,9 +4589,9 @@ export default function App() {
                               />
                               <button
                                 type="submit"
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[11px] px-3 py-1 rounded shrink-0 cursor-pointer"
+                                className="bg-emerald-650 hover:bg-emerald-700 text-white font-black text-[11px] px-3 py-1 rounded shrink-0 cursor-pointer"
                               >
-                                سداد سلفية
+                                إيداع مال للعامل
                               </button>
                             </div>
                             <div>
@@ -4567,7 +4600,7 @@ export default function App() {
                                 value={workerRepayDescription}
                                 onChange={(e) => setWorkerRepayDescription(e.target.value)}
                                 placeholder="البيان (مثال: سداد سلفية، إيداع أمانة)"
-                                className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px] focus:outline-none focus:border-emerald-600 font-semibold"
+                                className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px] focus:outline-none focus:border-emerald-650 font-semibold"
                               />
                             </div>
                           </form>
