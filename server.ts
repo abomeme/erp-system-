@@ -1,20 +1,7 @@
 import express from "express";
 import path from "path";
 import { exec } from "child_process";
-import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
-
-// Safe resolution of directory names for ESM and CJS environments
-let currentDirname = process.cwd();
-try {
-  if (typeof __dirname !== "undefined") {
-    currentDirname = __dirname;
-  } else if (typeof import.meta !== "undefined" && import.meta.url) {
-    currentDirname = path.dirname(fileURLToPath(import.meta.url));
-  }
-} catch (e) {
-  console.log("Using process.cwd() fallback for directory resolution");
-}
 
 async function startServer() {
   const app = express();
