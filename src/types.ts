@@ -52,6 +52,7 @@ export interface Contact {
   notes: string;
   salary?: number; // الراتب الأساسي الشهري
   hireDate?: string; // تاريخ التعيين للعامل
+  oldBalance?: number; // متبقي حساب قديم (الرصيد الافتتاحي المتبقي للعميل أو المورد)
 }
 
 // الكيانات المخصصة للفاكهة والمخازن والأسعار

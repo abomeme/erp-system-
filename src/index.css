@@ -1,5 +1,16 @@
 @import "tailwindcss";
 
+@theme {
+  --color-red-650: #dc2626;
+  --color-emerald-650: #059669;
+  --color-rose-650: #db2777;
+  --color-orange-650: #ea580c;
+  --color-indigo-650: #4f46e5;
+  --color-blue-650: #2563eb;
+  --color-amber-650: #d97706;
+  --color-slate-650: #475569;
+}
+
 @layer base {
   body {
     font-family: 'Cairo', 'Inter', system-ui, -apple-system, sans-serif;

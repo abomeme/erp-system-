@@ -7,6 +7,14 @@
 import ArabReshaper from 'arabic-persian-reshaper';
 
 // Arabic Tafqit (Numbers to Arabic Words) banking utility for Sudanese Pounds (SDG)
+export function formatQty(qty: number | undefined | null): string {
+  if (qty === undefined || qty === null || isNaN(qty)) return '0';
+  if (Number.isInteger(qty)) {
+    return qty.toString();
+  }
+  return parseFloat(qty.toFixed(3)).toString();
+}
+
 export function tafqit(num: number, currencySymbol: string = "جنيه"): string {
   const integerPart = Math.floor(num);
   if (integerPart === 0) return `صفر ${currencySymbol}`;

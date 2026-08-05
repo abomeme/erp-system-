@@ -282,7 +282,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'sync_down') {
                 "typeName" => $item['typeName'],
                 "gradeName" => $item['gradeName'],
                 "unitName" => $item['unitName'],
-                "qty" => intval($item['qty']),
+                "qty" => floatval($item['qty']),
                 "price" => floatval($item['price']),
                 "total" => floatval($item['total']),
                 "priceType" => $item['priceType']

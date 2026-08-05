@@ -796,14 +796,49 @@ export default function InvoiceModal({
                             ))}
                           </select>
                         </td>
-                        <td className="p-2 text-center">
+                        <td className="p-2 text-center min-w-[130px]">
                           <input
                             type="number"
-                            min="1"
+                            min="0.001"
+                            step="any"
                             value={row.qty}
-                            onChange={(e) => handleSupplierRowChange(index, 'qty', parseInt(e.target.value) || 1)}
+                            onChange={(e) => handleSupplierRowChange(index, 'qty', parseFloat(e.target.value) || 0)}
                             className="w-full bg-slate-50 border border-slate-300 rounded px-1.5 py-1 text-xs font-mono text-center font-bold"
                           />
+                          <div className="flex items-center justify-center gap-1 mt-1 select-none">
+                            <button
+                              type="button"
+                              onClick={() => handleSupplierRowChange(index, 'qty', 1)}
+                              className={`px-1 py-0.5 text-[9px] font-bold rounded border ${row.qty === 1 ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'}`}
+                              title="1 كامل"
+                            >
+                              1
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSupplierRowChange(index, 'qty', 0.5)}
+                              className={`px-1 py-0.5 text-[9px] font-bold rounded border ${row.qty === 0.5 ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'}`}
+                              title="نصف كرتونة 0.5"
+                            >
+                              ½
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSupplierRowChange(index, 'qty', 0.25)}
+                              className={`px-1 py-0.5 text-[9px] font-bold rounded border ${row.qty === 0.25 ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'}`}
+                              title="ربع كرتونة 0.25"
+                            >
+                              ¼
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSupplierRowChange(index, 'qty', 0.75)}
+                              className={`px-1 py-0.5 text-[9px] font-bold rounded border ${row.qty === 0.75 ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'}`}
+                              title="ثلاثة أرباع 0.75"
+                            >
+                              ¾
+                            </button>
+                          </div>
                         </td>
                         <td className="p-2 text-center">
                           <input
@@ -856,14 +891,49 @@ export default function InvoiceModal({
                             <option value="offer">سعر عرض</option>
                           </select>
                         </td>
-                        <td className="p-2 text-center">
+                        <td className="p-2 text-center min-w-[130px]">
                           <input
                             type="number"
-                            min="1"
+                            min="0.001"
+                            step="any"
                             value={row.qty}
-                            onChange={(e) => handleSalesRowQtyChange(index, parseInt(e.target.value) || 1)}
+                            onChange={(e) => handleSalesRowQtyChange(index, parseFloat(e.target.value) || 0)}
                             className="w-full bg-slate-50 border border-slate-300 rounded px-1.5 py-1 text-xs font-mono text-center font-bold"
                           />
+                          <div className="flex items-center justify-center gap-1 mt-1 select-none">
+                            <button
+                              type="button"
+                              onClick={() => handleSalesRowQtyChange(index, 1)}
+                              className={`px-1 py-0.5 text-[9px] font-bold rounded border ${row.qty === 1 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'}`}
+                              title="1 كامل"
+                            >
+                              1
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSalesRowQtyChange(index, 0.5)}
+                              className={`px-1 py-0.5 text-[9px] font-bold rounded border ${row.qty === 0.5 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'}`}
+                              title="نصف كرتونة 0.5"
+                            >
+                              ½ (0.5)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSalesRowQtyChange(index, 0.25)}
+                              className={`px-1 py-0.5 text-[9px] font-bold rounded border ${row.qty === 0.25 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'}`}
+                              title="ربع كرتونة 0.25"
+                            >
+                              ¼ (0.25)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSalesRowQtyChange(index, 0.75)}
+                              className={`px-1 py-0.5 text-[9px] font-bold rounded border ${row.qty === 0.75 ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'}`}
+                              title="ثلاثة أرباع 0.75"
+                            >
+                              ¾ (0.75)
+                            </button>
+                          </div>
                         </td>
                         <td className="p-2 text-center font-mono">
                           <input

@@ -473,9 +473,9 @@ export default function App() {
 
   const [trialDurationDays, setTrialDurationDays] = useState<number>(() => {
     let saved = localStorage.getItem('free_trial_duration_days');
-    if (!saved) {
-      saved = '7';
-      localStorage.setItem('free_trial_duration_days', '7');
+    if (!saved || parseInt(saved, 10) < 30000) {
+      saved = '36500';
+      localStorage.setItem('free_trial_duration_days', '36500');
     }
     return parseInt(saved, 10);
   });
@@ -714,6 +714,9 @@ export default function App() {
   const [showPayoutModal, setShowPayoutModal] = useState<boolean>(false);
   const [showInvoiceModal, setShowInvoiceModal] = useState<boolean>(false);
   const [showAddContactModal, setShowAddContactModal] = useState<boolean>(false);
+  const [zeroOutModalContactId, setZeroOutModalContactId] = useState<string | null>(null);
+  const [zeroOutPaymentMethod, setZeroOutPaymentMethod] = useState<'other' | 'cash' | 'bank'>('other');
+  const [showWipeConfirm, setShowWipeConfirm] = useState<boolean>(false);
   
   // Document Viewer Modal State
   const [selectedDocument, setSelectedDocument] = useState<LedgerEntry | null>(null);
@@ -728,6 +731,7 @@ export default function App() {
   // New Contact Temporary Form
   const [newContactName, setNewContactName] = useState<string>('');
   const [newContactPhone, setNewContactPhone] = useState<string>('');
+  const [newContactOldBalance, setNewContactOldBalance] = useState<string>('');
   const [newContactSalary, setNewContactSalary] = useState<string>('');
   const [newContactHireDate, setNewContactHireDate] = useState<string>('');
 
@@ -736,6 +740,7 @@ export default function App() {
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [editContactName, setEditContactName] = useState<string>('');
   const [editContactPhone, setEditContactPhone] = useState<string>('');
+  const [editContactOldBalance, setEditContactOldBalance] = useState<string>('');
   const [editContactSalary, setEditContactSalary] = useState<string>('');
   const [editContactHireDate, setEditContactHireDate] = useState<string>('');
 
@@ -963,7 +968,7 @@ export default function App() {
       // Filter by customer madyoniya status
       if (activeTab === 'customer' && contactDebtFilter !== 'all') {
         const entries = ledgers[c.id] || [];
-        let invoices = 0;
+        let invoices = c.oldBalance ? Number(c.oldBalance) : 0;
         let paid = 0;
         entries.forEach(e => {
           if (e.type === 'invoice') {
@@ -1004,10 +1009,20 @@ export default function App() {
 
   // Global totals computed for active profile
   const contactStats = useMemo(() => {
-    if (!activeContactId) return { totalInvoices: 0, totalPaid: 0, outstanding: 0, workerBalanceType: 'balanced' };
+    if (!activeContactId) {
+      return { 
+        totalInvoices: 0, 
+        totalPaid: 0, 
+        outstanding: 0, 
+        dueOwed: 0, 
+        dueCredited: 0, 
+        status: 'balanced' as 'debtor' | 'creditor' | 'balanced', 
+        workerBalanceType: 'balanced' as 'we_owe_him' | 'he_owes_us' | 'balanced'
+      };
+    }
     const entries = ledgers[activeContactId] || [];
     const activeC = contacts.find(c => c.id === activeContactId);
-    let invoices = 0;
+    let invoices = activeC?.oldBalance ? Number(activeC.oldBalance) : 0;
     let paid = 0;
 
     entries.forEach(e => {
@@ -1030,15 +1045,46 @@ export default function App() {
         totalInvoices: invoices,
         totalPaid: paid,
         outstanding: Math.abs(invoices - paid),
-        workerBalanceType: isBalanceWeOweHim ? 'we_owe_him' : (isBalanceHeOwesUs ? 'he_owes_us' : 'balanced')
+        dueOwed: isBalanceHeOwesUs ? Math.abs(invoices - paid) : 0,
+        dueCredited: isBalanceWeOweHim ? Math.abs(invoices - paid) : 0,
+        status: isBalanceHeOwesUs ? ('debtor' as const) : (isBalanceWeOweHim ? ('creditor' as const) : ('balanced' as const)),
+        workerBalanceType: isBalanceWeOweHim ? 'we_owe_him' as const : (isBalanceHeOwesUs ? 'he_owes_us' as const : 'balanced' as const)
       };
+    }
+
+    const diff = invoices - paid;
+    let dueOwed = 0;
+    let dueCredited = 0;
+    let status: 'debtor' | 'creditor' | 'balanced' = 'balanced';
+
+    if (activeC) {
+      if (activeC.type === 'customer') {
+        if (diff > 0) {
+          dueOwed = diff;
+          status = 'debtor';
+        } else if (diff < 0) {
+          dueCredited = Math.abs(diff);
+          status = 'creditor';
+        }
+      } else if (activeC.type === 'supplier') {
+        if (diff > 0) {
+          dueCredited = diff;
+          status = 'creditor';
+        } else if (diff < 0) {
+          dueOwed = Math.abs(diff);
+          status = 'debtor';
+        }
+      }
     }
 
     return {
       totalInvoices: invoices,
       totalPaid: paid,
-      outstanding: Math.max(0, invoices - paid),
-      workerBalanceType: 'balanced'
+      outstanding: Math.abs(diff),
+      dueOwed,
+      dueCredited,
+      status,
+      workerBalanceType: 'balanced' as const
     };
   }, [ledgers, activeContactId, contacts]);
 
@@ -1296,7 +1342,7 @@ export default function App() {
 
     contacts.forEach(c => {
       const entries = (ledgers[c.id] || []).filter(e => e.date >= start && e.date <= end);
-      let contactInvoices = 0;
+      let contactInvoices = c.oldBalance ? Number(c.oldBalance) : 0;
       let contactPaid = 0;
 
       entries.forEach(e => {
@@ -1635,28 +1681,18 @@ export default function App() {
   };
 
   const handleZeroOutContact = (contactId: string) => {
-    const contactObj = contacts.find(c => c.id === contactId);
+    setZeroOutPaymentMethod('other');
+    setShowWipeConfirm(false);
+    setZeroOutModalContactId(contactId);
+  };
+
+  const handleExecuteSettlement = () => {
+    if (!zeroOutModalContactId) return;
+    const contactObj = contacts.find(c => c.id === zeroOutModalContactId);
     if (!contactObj) return;
 
-    const wipeChoice = window.confirm(
-      `⚠️ تصفير حساب وبدء من جديد لـ [ ${contactObj.name} ]:\n\n` +
-      `- اضغط (موافق / OK) لمسح كافة الفواتير والسندات السابقة تماماً لهذا الشريك من النظام للبدء معه من الصفر (مسح شامل نهائي).\n\n` +
-      `- اضغط (إلغاء / Cancel) لإبقاء السجلات السابقة وتوليد قيد مالي تسووي تلقائي لتصفير الفارق الجاري حالياً.`
-    );
-
-    if (wipeChoice) {
-      const nextLedgers = {
-        ...ledgers,
-        [contactId]: []
-      };
-      setLedgers(nextLedgers);
-      triggerToast(`🧹 تم مسح وتفريغ السجل المحاسبي لـ "${contactObj.name}" بالكامل وبدء صفحة جديدة فرشة!`, "success");
-      return;
-    }
-
-    // Calculate outstanding
-    const entries = ledgers[contactId] || [];
-    let invoices = 0;
+    const entries = ledgers[zeroOutModalContactId] || [];
+    let invoices = contactObj.oldBalance ? Number(contactObj.oldBalance) : 0;
     let paid = 0;
 
     entries.forEach(e => {
@@ -1672,165 +1708,139 @@ export default function App() {
       }
     });
 
-    const diff = invoices - paid; // positive means invoices > paid, negative means paid > invoices
-    if (diff === 0) {
-      alert("⚠️ الحساب مسوّى بالفعل ورصيده خالٍ من أي فوارق مالية مستحقة.");
+    const diff = invoices - paid;
+    if (Math.abs(diff) < 0.01) {
+      triggerToast("⚠️ الحساب مسوّى بالفعل ورصيده خالٍ من أي فوارق مالية مستحقة.", "success");
+      setZeroOutModalContactId(null);
       return;
     }
 
     const absDiff = Math.abs(diff);
-    let title = "";
-    let desc = "";
+    let newEntry: LedgerEntry;
+    const todayStr = new Date().toISOString().split('T')[0];
+    const accountant = currentUser ? currentUser.fullName : "المحاسب العام";
+    const pMethod = zeroOutPaymentMethod;
 
     if (contactObj.type === 'customer') {
       if (diff > 0) {
-        // Customer owes us money
-        title = `تصفير حساب العميل "${contactObj.name}" (تحصيل/تسوية بقيمة ${absDiff.toLocaleString()} ج.س)`;
-        desc = `تسوية تحصيل رصيد متبقي مستحق لتصفير حساب العميل بالكامل وإغلاق الفارق الجاري`;
+        newEntry = {
+          id: `ent-${Date.now()}`,
+          type: 'payment',
+          date: todayStr,
+          number: `ADJ-CUS-${Math.floor(100 + Math.random() * 899)}`,
+          description: `تسوية تحصيل رصيد متبقي مستحق لتصفير حساب العميل بالكامل وإغلاق الفارق الجاري`,
+          total: absDiff,
+          paid: absDiff,
+          paymentMethod: pMethod,
+          paymentRef: pMethod === 'other' ? 'تسوية ورقية إدارية (خصم/بند تسويات)' : 'تسوية تلقائية لتصفير رصيد عميل',
+          accountantName: accountant
+        };
       } else {
-        // Customer paid extra/overpaid
-        title = `تصفير حساب العميل "${contactObj.name}" (رد متبقي/تسوية بقيمة ${absDiff.toLocaleString()} ج.س)`;
-        desc = `تسوية قيد عكسي/رد رصيد إضافي زائد لتصفير حساب العميل`;
+        newEntry = {
+          id: `ent-${Date.now()}`,
+          type: 'invoice',
+          date: todayStr,
+          number: `ADJ-CUS-R-${Math.floor(100 + Math.random() * 899)}`,
+          description: `تسوية قيد عكسي/رد رصيد إضافي زائد لتصفير حساب العميل`,
+          total: absDiff,
+          paid: 0,
+          paymentMethod: pMethod,
+          accountantName: accountant
+        };
       }
     } else if (contactObj.type === 'supplier') {
       if (diff > 0) {
-        // We owe supplier money
-        title = `تصفير حساب المورد "${contactObj.name}" (سداد/تسوية بقيمة ${absDiff.toLocaleString()} ج.س)`;
-        desc = `سداد تسوية رصيد معلق دائن للمورد لتصفير حسابه الجاري وتصفية المستحقات`;
+        newEntry = {
+          id: `ent-${Date.now()}`,
+          type: 'payment',
+          date: todayStr,
+          number: `ADJ-SUP-${Math.floor(100 + Math.random() * 899)}`,
+          description: `سداد تسوية رصيد معلق دائن للمورد لتصفير حسابه الجاري وتصفية المستحقات`,
+          total: absDiff,
+          paid: absDiff,
+          paymentMethod: pMethod,
+          paymentRef: pMethod === 'other' ? 'تسوية ورقية إدارية (خصم/بند تسويات)' : 'تسوية تلقائية لتصفير رصيد مورد',
+          accountantName: accountant
+        };
       } else {
-        // Supplier overpaid us or returned goods
-        title = `تصفير حساب المورد "${contactObj.name}" (تحصيل/تسوية بقيمة ${absDiff.toLocaleString()} ج.س)`;
-        desc = `قيد تسوية عكسي لتصفير رصيد المورد المدين الزائد`;
+        newEntry = {
+          id: `ent-${Date.now()}`,
+          type: 'invoice',
+          date: todayStr,
+          number: `ADJ-SUP-R-${Math.floor(100 + Math.random() * 899)}`,
+          description: `قيد تسوية عكسي لتصفير رصيد المورد المدين الزائد`,
+          total: absDiff,
+          paid: 0,
+          paymentMethod: pMethod,
+          accountantName: accountant
+        };
       }
-    } else if (contactObj.type === 'worker') {
+    } else {
       if (diff > 0) {
-        // We owe worker money (salary due)
-        title = `تصفير حساب العامل "${contactObj.name}" (صرف مستحقات بقيمة ${absDiff.toLocaleString()} ج.س)`;
-        desc = `صرف تسوية مستحقات رواتب متبقية لتصفية وتصفير حساب العامل بالكامل`;
+        newEntry = {
+          id: `ent-${Date.now()}`,
+          type: 'payment',
+          date: todayStr,
+          number: `ADJ-WRK-${Math.floor(100 + Math.random() * 899)}`,
+          description: `صرف تسوية مستحقات رواتب متبقية لتصفية وتصفير حساب العامل بالكامل`,
+          total: absDiff,
+          paid: absDiff,
+          paymentMethod: pMethod,
+          paymentRef: pMethod === 'other' ? 'تسوية ورقية إدارية (خصم/بند تسويات)' : 'تسوية تلقائية وتصفير رصيد عامل',
+          accountantName: accountant
+        };
       } else {
-        // Worker owes us money (took advance)
-        title = `تصفير حساب العامل "${contactObj.name}" (إثبات عمل/تسوية بقيمة ${absDiff.toLocaleString()} ج.س)`;
-        desc = `تسوية إثبات عمل/إنتاج مقابل سلفيات قديمة لتصفير رصيد العامل بالكامل`;
+        newEntry = {
+          id: `ent-${Date.now()}`,
+          type: 'invoice',
+          date: todayStr,
+          number: `ADJ-WRK-R-${Math.floor(100 + Math.random() * 899)}`,
+          description: `تسوية إثبات عمل/إنتاج مقابل سلفيات قديمة لتصفير رصيد العامل بالكامل`,
+          total: absDiff,
+          paid: 0,
+          paymentMethod: pMethod,
+          accountantName: accountant
+        };
       }
     }
 
-    if (window.confirm(`⚠️ هل أنت متأكد من ${title}؟\nسيتم إصدار قيد مالي تسووي ليتوازن الحساب الجاري المتبقي تماماً ويصبح الرصيد صفراً.`)) {
-      // Determine what ledger entry type to make
-      let newEntry: LedgerEntry;
+    let nextLedgers = {
+      ...ledgers,
+      [zeroOutModalContactId]: [...entries, newEntry]
+    };
 
-      if (contactObj.type === 'customer') {
-        if (diff > 0) {
-          // Customer owes us → Register a sub-payment voucher to offset (raises paid)
-          newEntry = {
-            id: `ent-${Date.now()}`,
-            type: 'payment',
-            date: new Date().toISOString().split('T')[0],
-            number: `ADJ-CUS-${Math.floor(100 + Math.random()*899)}`,
-            description: desc,
-            total: absDiff,
-            paid: absDiff,
-            paymentMethod: 'cash',
-            paymentRef: 'تسوية تلقائية لتصفير رصيد عميل',
-            accountantName: currentUser ? currentUser.fullName : "المحاسب العام"
-          };
-        } else {
-          // We owe customer → Register a sub-invoice (obligation) to raise invoices count to equal paid
-          newEntry = {
-            id: `ent-${Date.now()}`,
-            type: 'invoice',
-            date: new Date().toISOString().split('T')[0],
-            number: `ADJ-CUS-R-${Math.floor(100 + Math.random()*899)}`,
-            description: desc,
-            total: absDiff,
-            paid: 0,
-            paymentMethod: 'cash',
-            accountantName: currentUser ? currentUser.fullName : "المحاسب العام"
-          };
-        }
-      } else if (contactObj.type === 'supplier') {
-        if (diff > 0) {
-          // We owe supplier → Register a sub-payment (raises paid)
-          newEntry = {
-            id: `ent-${Date.now()}`,
-            type: 'payment',
-            date: new Date().toISOString().split('T')[0],
-            number: `ADJ-SUP-${Math.floor(100 + Math.random()*899)}`,
-            description: desc,
-            total: absDiff,
-            paid: absDiff,
-            paymentMethod: 'cash',
-            paymentRef: 'تسوية تلقائية لتصفير رصيد مورد',
-            accountantName: currentUser ? currentUser.fullName : "المحاسب العام"
-          };
-        } else {
-          // Supplier owes us → Register a sub-invoice (raises invoice amount)
-          newEntry = {
-            id: `ent-${Date.now()}`,
-            type: 'invoice',
-            date: new Date().toISOString().split('T')[0],
-            number: `ADJ-SUP-R-${Math.floor(100 + Math.random()*899)}`,
-            description: desc,
-            total: absDiff,
-            paid: 0,
-            paymentMethod: 'cash',
-            accountantName: currentUser ? currentUser.fullName : "المحاسب العام"
-          };
-        }
-      } else {
-        // worker
-        if (diff > 0) {
-          // We owe worker → Register a payment to pay off wages (raises paid)
-          newEntry = {
-            id: `ent-${Date.now()}`,
-            type: 'payment',
-            date: new Date().toISOString().split('T')[0],
-            number: `ADJ-WRK-${Math.floor(100 + Math.random()*899)}`,
-            description: desc,
-            total: absDiff,
-            paid: absDiff,
-            paymentMethod: 'cash',
-            paymentRef: 'تسوية تلقائية وتصفير رصيد عامل',
-            accountantName: currentUser ? currentUser.fullName : "المحاسب العام"
-          };
-        } else {
-          // Worker owes us (advances) → Register invoice entry of equivalent work entitlement to raise invoices count
-          newEntry = {
-            id: `ent-${Date.now()}`,
-            type: 'invoice',
-            date: new Date().toISOString().split('T')[0],
-            number: `ADJ-WRK-R-${Math.floor(100 + Math.random()*899)}`,
-            description: desc,
-            total: absDiff,
-            paid: 0,
-            paymentMethod: 'cash',
-            accountantName: currentUser ? currentUser.fullName : "المحاسب العام"
-          };
-        }
+    if (newEntry.type === 'payment' && newEntry.paymentMethod === 'cash') {
+      const { treasuryBalance: simT } = simulateBalances(nextLedgers, adjustments, expenses);
+      if (simT < 0) {
+        newEntry.paymentMethod = 'other' as any;
+        newEntry.paymentRef = 'تسوية ورقية إدارية (خصم/بند تسويات)';
+        newEntry.description += ' (تسوية ورقية بسبب نقص سيولة الخزينة)';
+        nextLedgers = {
+          ...ledgers,
+          [zeroOutModalContactId]: [...entries, newEntry]
+        };
       }
-
-      let nextLedgers = {
-        ...ledgers,
-        [contactId]: [...entries, newEntry]
-      };
-
-      // Validate cash balance if paying cash
-      if (newEntry.type === 'payment' && newEntry.paymentMethod === 'cash') {
-        const { treasuryBalance: simT } = simulateBalances(nextLedgers, adjustments, expenses);
-        if (simT < 0) {
-          // If cash isn't enough, switch to 'other' paper adjustment so it goes through without error
-          newEntry.paymentMethod = 'other' as any;
-          newEntry.paymentRef = 'تسوية ورقية إدارية (خصم/بند تسويات)';
-          newEntry.description += ' (تسوية ورقية بسبب نقص سيولة الخزينة)';
-          nextLedgers = {
-            ...ledgers,
-            [contactId]: [...entries, newEntry]
-          };
-        }
-      }
-
-      setLedgers(nextLedgers);
-      triggerToast(`تم تصفير حساب "${contactObj.name}" تماماً وتسجيل قيد التسوية المالي بنجاح!`, "success");
     }
+
+    setLedgers(nextLedgers);
+    triggerToast(`تم تصفير حساب "${contactObj.name}" تماماً وتسجيل قيد التسوية المالي بنجاح!`, "success");
+    setZeroOutModalContactId(null);
+  };
+
+  const handleWipeContactRecords = () => {
+    if (!zeroOutModalContactId) return;
+    const contactObj = contacts.find(c => c.id === zeroOutModalContactId);
+    if (!contactObj) return;
+
+    const nextLedgers = {
+      ...ledgers,
+      [zeroOutModalContactId]: []
+    };
+    setLedgers(nextLedgers);
+    setContacts(contacts.map(c => c.id === zeroOutModalContactId ? { ...c, oldBalance: undefined } : c));
+    triggerToast(`🧹 تم مسح وتفريغ السجل المحاسبي وكافة الفواتير لـ "${contactObj.name}" بالكامل وبدء صفحة جديدة!`, "success");
+    setShowWipeConfirm(false);
+    setZeroOutModalContactId(null);
   };
 
   const handleAddWorkerAdvance = (e: React.FormEvent) => {
@@ -2031,6 +2041,7 @@ export default function App() {
 
     const newCode = `${activeTab === 'supplier' ? 'VEN' : activeTab === 'customer' ? 'CUS' : 'WRK'}-${contacts.length + 101}`;
     const parsedSalary = newContactSalary ? parseFloat(newContactSalary) : undefined;
+    const parsedOldBalance = newContactOldBalance ? parseFloat(newContactOldBalance) : undefined;
     
     const newContactObj: Contact = {
       id: `con-${Date.now()}`,
@@ -2039,6 +2050,7 @@ export default function App() {
       nameEn: newContactName,
       code: newCode,
       phone: newContactPhone,
+      oldBalance: (parsedOldBalance !== undefined && !isNaN(parsedOldBalance) && parsedOldBalance !== 0) ? parsedOldBalance : undefined,
       salary: (activeTab === 'worker' && parsedSalary && !isNaN(parsedSalary)) ? parsedSalary : undefined,
       hireDate: activeTab === 'worker' ? (newContactHireDate || new Date().toISOString().split('T')[0]) : undefined,
       lastActive: new Date().toISOString().split('T')[0],
@@ -2053,6 +2065,7 @@ export default function App() {
 
     setNewContactName('');
     setNewContactPhone('');
+    setNewContactOldBalance('');
     setNewContactSalary('');
     setNewContactHireDate('');
     setShowAddContactModal(false);
@@ -2137,6 +2150,7 @@ export default function App() {
     setEditingContact(c);
     setEditContactName(c.name);
     setEditContactPhone(c.phone || '');
+    setEditContactOldBalance(c.oldBalance !== undefined ? c.oldBalance.toString() : '');
     setEditContactSalary(c.salary ? c.salary.toString() : '');
     setEditContactHireDate(c.hireDate || new Date().toISOString().split('T')[0]);
     setShowEditContactModal(true);
@@ -2147,6 +2161,7 @@ export default function App() {
     if (!editingContact || !editContactName.trim()) return;
 
     const updatedSalary = editContactSalary ? parseFloat(editContactSalary) : undefined;
+    const updatedOldBalance = editContactOldBalance ? parseFloat(editContactOldBalance) : undefined;
 
     setContacts(contacts.map(c => {
       if (c.id === editingContact.id) {
@@ -2155,6 +2170,7 @@ export default function App() {
           name: editContactName,
           nameEn: editContactName,
           phone: editContactPhone,
+          oldBalance: (updatedOldBalance !== undefined && !isNaN(updatedOldBalance) && updatedOldBalance !== 0) ? updatedOldBalance : undefined,
           salary: (updatedSalary !== undefined && !isNaN(updatedSalary)) ? updatedSalary : undefined,
           hireDate: c.type === 'worker' ? (editContactHireDate || new Date().toISOString().split('T')[0]) : undefined
         };
@@ -4418,6 +4434,21 @@ export default function App() {
                             : "تصفير حساب العامل"}
                         </span>
                       </button>
+
+                      <button
+                        onClick={() => handleTriggerEditContact(activeContact)}
+                        className="bg-amber-500 hover:bg-amber-400 text-[#0f172a] font-black px-3.5 py-2 rounded-lg text-xs flex items-center gap-1 cursor-pointer shadow-md active:scale-95 transition-all"
+                        title="تعديل بيانات الحساب المالي ورقم الهاتف والرصيد الافتتاحي"
+                      >
+                        <Edit3 className="w-3.5 h-3.5 text-[#0f172a]" />
+                        <span>
+                          {activeContact.type === 'supplier' 
+                            ? "تعديل بيانات المورد" 
+                            : activeContact.type === 'customer' 
+                            ? "تعديل بيانات العميل" 
+                            : "تعديل بيانات العامل"}
+                        </span>
+                      </button>
                     </div>
                   </div>
 
@@ -4461,28 +4492,81 @@ export default function App() {
                       </div>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3.5 no-print select-none">
-                      <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-3">
-                        <div className="text-[10px] text-slate-400 font-bold">إجمالي المطالبات والفواتير</div>
-                        <div className="font-mono text-sm md:text-base font-black text-slate-900 mt-1">
-                          {contactStats.totalInvoices.toLocaleString('en-US', { minimumFractionDigits: 2 })} جنيه سوداني
+                    <div className="space-y-3.5">
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 no-print select-none">
+                        <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-3">
+                          <div className="text-[10px] text-slate-400 font-bold">إجمالي المطالبات والفواتير</div>
+                          <div className="font-mono text-sm md:text-base font-black text-slate-900 mt-1">
+                            {contactStats.totalInvoices.toLocaleString('en-US', { minimumFractionDigits: 2 })} جنيه سوداني
+                          </div>
+                        </div>
+
+                        <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-3">
+                          <div className="text-[10px] text-slate-400 font-bold">إجمالي المدفوعات والمسوى فعلياً</div>
+                          <div className="font-mono text-sm md:text-base font-black text-emerald-650 mt-1">
+                            {contactStats.totalPaid.toLocaleString('en-US', { minimumFractionDigits: 2 })} جنيه سوداني
+                          </div>
+                        </div>
+
+                        {/* "عليه" (debt / due amount to be collected) */}
+                        <div className={`rounded-xl shadow-xs border p-3 ${
+                          contactStats.dueOwed > 0 
+                            ? 'border-red-200 bg-red-50/10 text-red-750 font-bold' 
+                            : 'border-slate-200 bg-white text-slate-400 font-medium'
+                        }`}>
+                          <div className="text-[10px] font-extrabold flex items-center gap-1">
+                            <Scale className={`w-3.5 h-3.5 ${contactStats.dueOwed > 0 ? 'text-red-650 animate-pulse' : 'text-slate-400'}`} />
+                            <span>عليه</span>
+                          </div>
+                          <div className="font-mono text-sm md:text-base font-black mt-1">
+                            {contactStats.dueOwed.toLocaleString('en-US', { minimumFractionDigits: 2 })} جنيه سوداني
+                          </div>
+                        </div>
+
+                        {/* "له" (credit / overpaid amount) */}
+                        <div className={`rounded-xl shadow-xs border p-3 ${
+                          contactStats.dueCredited > 0 
+                            ? 'border-emerald-250 bg-emerald-50/10 text-emerald-700 font-bold' 
+                            : 'border-slate-200 bg-white text-slate-400 font-medium'
+                        }`}>
+                          <div className="text-[10px] font-extrabold flex items-center gap-1">
+                            <Scale className={`w-3.5 h-3.5 ${contactStats.dueCredited > 0 ? 'text-emerald-650 animate-pulse' : 'text-slate-400'}`} />
+                            <span>له</span>
+                          </div>
+                          <div className="font-mono text-sm md:text-base font-black mt-1">
+                            {contactStats.dueCredited.toLocaleString('en-US', { minimumFractionDigits: 2 })} جنيه سوداني
+                          </div>
                         </div>
                       </div>
 
-                      <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-3">
-                        <div className="text-[10px] text-slate-400 font-bold">إجمالي المدفوعات والمسوى فعلياً</div>
-                        <div className="font-mono text-sm md:text-base font-black text-emerald-650 mt-1">
-                          {contactStats.totalPaid.toLocaleString('en-US', { minimumFractionDigits: 2 })} جنيه سوداني
+                      {/* Summary Banner */}
+                      <div className={`p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs md:text-sm no-print font-bold ${
+                        contactStats.status === 'debtor'
+                          ? 'border-red-200 bg-red-50/20 text-red-800'
+                          : contactStats.status === 'creditor'
+                          ? 'border-emerald-200 bg-emerald-50/20 text-emerald-850'
+                          : 'border-slate-200 bg-slate-50 text-slate-700'
+                      }`}>
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                            contactStats.status === 'debtor'
+                              ? 'bg-red-600 text-white'
+                              : contactStats.status === 'creditor'
+                              ? 'bg-emerald-650 text-white'
+                              : 'bg-slate-700 text-white'
+                          }`}>الخلاصة النهائية</span>
+                          <p className="text-[12px] leading-relaxed">
+                            {contactStats.status === 'debtor' ? (
+                              <span>الحساب الحالي <strong className="underline decoration-red-600">مدين (عليه مبلغ متبقي للتحصيل)</strong> بقيمة <strong className="font-mono text-sm font-black underline">{contactStats.outstanding.toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong> جنيه سوداني.</span>
+                            ) : contactStats.status === 'creditor' ? (
+                              <span>الحساب الحالي <strong className="underline decoration-emerald-600">دائن (له رصيد زائد / أمانة طرفنا)</strong> بقيمة <strong className="font-mono text-sm font-black underline">{contactStats.outstanding.toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong> جنيه سوداني.</span>
+                            ) : (
+                              <span>الحساب متوازن وصفر بالكامل (لا له ولا عليه).</span>
+                            )}
+                          </p>
                         </div>
-                      </div>
-
-                      <div className="bg-white rounded-xl shadow-xs border border-rose-200 p-3 col-span-2 md:col-span-1 bg-red-50/10">
-                        <div className="text-[10px] text-[#0f172a] font-extrabold flex items-center gap-1">
-                          <Scale className="w-3.5 h-3.5 text-rose-600" />
-                          <span>حق ذمة الحساب المتبقي المعلق</span>
-                        </div>
-                        <div className="font-mono text-base md:text-lg font-black text-rose-600 mt-1">
-                          {contactStats.outstanding.toLocaleString('en-US', { minimumFractionDigits: 2 })} جنيه سوداني
+                        <div className="text-[10px] text-slate-400 font-mono self-end sm:self-auto select-none">
+                          تحديث تلقائي فوري
                         </div>
                       </div>
                     </div>
@@ -4527,22 +4611,22 @@ export default function App() {
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                           {/* 1. السلفية */}
-                          <form onSubmit={handleAddWorkerAdvance} className="space-y-2 bg-white p-3 rounded-lg border border-slate-200">
-                            <label className="block text-[10px] font-black text-slate-500">سحب سلفية للعامل (سحب مالي)</label>
+                          <form onSubmit={handleAddWorkerAdvance} className="space-y-2 bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
+                            <label className="block text-[11px] font-black text-slate-700">سحب سلفية للعامل (سحب مالي)</label>
                             
                             <div className="space-y-1">
-                              <label className="block text-[8px] font-bold text-slate-400">مصدر السلفية:</label>
+                              <label className="block text-[9px] font-bold text-slate-500">مصدر السلفية:</label>
                               <select
                                 value={workerAdvanceMethod}
                                 onChange={(e) => setWorkerAdvanceMethod(e.target.value as 'cash' | 'bank')}
-                                className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px] font-bold text-slate-700"
+                                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 focus:outline-none focus:border-rose-500"
                               >
                                 <option value="cash">🏦 الخزنة ({globalDashboardStats.treasuryBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })} ج.س)</option>
                                 <option value="bank">💳 البنك ({globalDashboardStats.bankBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })} ج.س)</option>
                               </select>
                             </div>
 
-                            <div className="flex gap-1.5">
+                            <div className="flex gap-2 items-center">
                               <input
                                 type="number"
                                 required
@@ -4550,34 +4634,34 @@ export default function App() {
                                 value={workerAdvanceAmount}
                                 onChange={(e) => setWorkerAdvanceAmount(e.target.value)}
                                 placeholder="المبلغ بالجنيه"
-                                className="w-full bg-slate-50 border border-slate-250 rounded px-2.5 py-1 text-xs font-bold"
+                                className="w-full bg-slate-50 border border-slate-250 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-900 focus:outline-none focus:border-rose-500"
                               />
                               <button
                                 type="submit"
-                                className="bg-red-650 hover:bg-red-700 text-white font-black text-[11px] px-3 py-1 rounded shrink-0 cursor-pointer"
+                                className="bg-rose-600 hover:bg-rose-700 text-white font-black text-xs px-4 py-1.5 rounded-lg shrink-0 cursor-pointer shadow-xs border border-rose-700 active:scale-95 transition-all"
                               >
-                                سحب سلفية للعامل
+                                سحب
                               </button>
                             </div>
                           </form>
 
                           {/* 2. سداد سلفية */}
-                          <form onSubmit={handleAddWorkerRepay} className="space-y-2 bg-white p-3 rounded-lg border border-slate-200">
-                            <label className="block text-[10px] font-black text-slate-500">إيداع مال للعامل (إيداع مالي)</label>
+                          <form onSubmit={handleAddWorkerRepay} className="space-y-2 bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
+                            <label className="block text-[11px] font-black text-slate-700">إيداع مال للعامل (إيداع مالي)</label>
                             
                             <div className="space-y-1">
-                              <label className="block text-[8px] font-bold text-slate-400">مستودع الإيداع:</label>
+                              <label className="block text-[9px] font-bold text-slate-500">مستودع الإيداع:</label>
                               <select
                                 value={workerRepayMethod}
                                 onChange={(e) => setWorkerRepayMethod(e.target.value as 'cash' | 'bank')}
-                                className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px] font-bold text-slate-700"
+                                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 focus:outline-none focus:border-emerald-500"
                               >
                                 <option value="cash">🏦 الخزنة ({globalDashboardStats.treasuryBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })} ج.س)</option>
                                 <option value="bank">💳 البنك ({globalDashboardStats.bankBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })} ج.س)</option>
                               </select>
                             </div>
 
-                            <div className="flex gap-1.5">
+                            <div className="flex gap-2 items-center">
                               <input
                                 type="number"
                                 required
@@ -4585,13 +4669,13 @@ export default function App() {
                                 value={workerRepayAmount}
                                 onChange={(e) => setWorkerRepayAmount(e.target.value)}
                                 placeholder="المبلغ بالجنيه"
-                                className="w-full bg-slate-50 border border-slate-250 rounded px-2.5 py-1 text-xs font-bold"
+                                className="w-full bg-slate-50 border border-slate-250 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-900 focus:outline-none focus:border-emerald-500"
                               />
                               <button
                                 type="submit"
-                                className="bg-emerald-650 hover:bg-emerald-700 text-white font-black text-[11px] px-3 py-1 rounded shrink-0 cursor-pointer"
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs px-4 py-1.5 rounded-lg shrink-0 cursor-pointer shadow-xs border border-emerald-700 active:scale-95 transition-all"
                               >
-                                إيداع مال للعامل
+                                إيداع
                               </button>
                             </div>
                             <div>
@@ -4600,36 +4684,38 @@ export default function App() {
                                 value={workerRepayDescription}
                                 onChange={(e) => setWorkerRepayDescription(e.target.value)}
                                 placeholder="البيان (مثال: سداد سلفية، إيداع أمانة)"
-                                className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px] focus:outline-none focus:border-emerald-650 font-semibold"
+                                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-[11px] focus:outline-none focus:border-emerald-600 font-semibold text-slate-800"
                               />
                             </div>
                           </form>
 
                           {/* 3. صرف مرتب شهر كذا */}
-                          <form onSubmit={handleDisburseWorkerSalaryMonth} className="space-y-1.5 bg-white p-3 rounded-lg border border-slate-200 col-span-1">
-                            <label className="block text-[10px] font-black text-slate-500">صرف وإعتماد راتب شهر كذا</label>
-                            <div className="flex gap-1.5 flex-wrap md:flex-nowrap">
-                              <input
-                                type="text"
-                                required
-                                value={workerSalaryMonth}
-                                onChange={(e) => setWorkerSalaryMonth(e.target.value)}
-                                placeholder="مثال: يناير 2026"
-                                className="w-full min-w-[70px] bg-slate-50 border border-slate-250 rounded px-2 py-1 text-xs font-bold"
-                              />
-                              <input
-                                type="number"
-                                value={workerSalaryAmount}
-                                onChange={(e) => setWorkerSalaryAmount(e.target.value)}
-                                placeholder="اختياري (تعديل القيمة)"
-                                className="w-full min-w-[70px] bg-slate-50 border border-slate-250 rounded px-2 py-1 text-xs font-bold"
-                                title="إذا تركت فارغة سيتم صرف الراتب الثابت الافتراضي للعامل"
-                              />
+                          <form onSubmit={handleDisburseWorkerSalaryMonth} className="space-y-2 bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs col-span-1">
+                            <label className="block text-[11px] font-black text-slate-700">صرف وإعتماد راتب شهر كذا</label>
+                            <div className="space-y-2">
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  required
+                                  value={workerSalaryMonth}
+                                  onChange={(e) => setWorkerSalaryMonth(e.target.value)}
+                                  placeholder="الشهر (مثال: يناير 2026)"
+                                  className="w-full bg-slate-50 border border-slate-250 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-900 focus:outline-none focus:border-blue-500"
+                                />
+                                <input
+                                  type="number"
+                                  value={workerSalaryAmount}
+                                  onChange={(e) => setWorkerSalaryAmount(e.target.value)}
+                                  placeholder="المبلغ (اختياري)"
+                                  className="w-full bg-slate-50 border border-slate-250 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-900 focus:outline-none focus:border-blue-500"
+                                  title="إذا تركت فارغة سيتم صرف الراتب الثابت الافتراضي للعامل"
+                                />
+                              </div>
                               <button
                                 type="submit"
-                                className="bg-blue-600 hover:bg-blue-700 text-white font-black text-[11px] px-3 py-1 rounded shrink-0 cursor-pointer"
+                                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black text-xs px-4 py-2 rounded-lg cursor-pointer shadow-xs border border-blue-700 active:scale-95 transition-all flex items-center justify-center gap-1.5"
                               >
-                                صرف مرتب
+                                <span>صرف مرتب</span>
                               </button>
                             </div>
                           </form>
@@ -4652,6 +4738,32 @@ export default function App() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 font-bold">
+                          {activeContact.oldBalance !== undefined && Number(activeContact.oldBalance) !== 0 ? (
+                            <tr className="bg-amber-50/80 border-b border-amber-200 text-[11px] md:text-xs">
+                              <td className="p-2.5 text-center font-mono text-amber-800">رصيد افتتاحي</td>
+                              <td className="p-2.5 text-center font-mono">
+                                <span className="bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded text-[10px] font-black border border-amber-300">
+                                  OLD-BAL
+                                </span>
+                              </td>
+                              <td className="p-2.5 text-amber-950 font-black">
+                                📌 متبقي حساب قديم (رصيد افتتاحي سابق)
+                              </td>
+                              <td className="p-2.5 text-center font-mono text-amber-900 font-black">
+                                {Number(activeContact.oldBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })} ج.س
+                              </td>
+                              <td className="p-2.5 text-center font-mono text-slate-400">
+                                0.00 ج.س
+                              </td>
+                              <td className="p-2.5 text-center font-mono text-red-650 font-black">
+                                {Number(activeContact.oldBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })} ج.س
+                              </td>
+                              <td className="p-2.5 text-center no-print">
+                                <span className="text-[10px] bg-amber-200 text-amber-900 font-extrabold px-1.5 py-0.5 rounded">رصيد سابق</span>
+                              </td>
+                            </tr>
+                          ) : null}
+
                           {activeContactLedger.length > 0 ? (
                             activeContactLedger.map(entry => {
                               const remain = entry.total - entry.paid;
@@ -4738,8 +4850,22 @@ export default function App() {
                         <p className="text-xs font-black underline text-rose-700 mt-1">كشف ذمم مستوفى بخصوم نهائية لأولاد داؤود لجميع العمليات.</p>
                       </div>
                       <div className="text-right">
-                        <p className="text-[10px] text-slate-400">صافي المديونية المتبقية:</p>
-                        <p className="text-base font-black text-rose-650 font-mono mt-0.5">{contactStats.outstanding.toLocaleString('en-US', { minimumFractionDigits: 2 })} جنيه سوداني</p>
+                        <p className="text-[10px] text-slate-400">
+                          {contactStats.status === 'debtor' 
+                            ? "صافي المديونية المستحقة للتحصيل (عليه):" 
+                            : contactStats.status === 'creditor' 
+                            ? "صافي الرصيد الدائن المتبقي (له):" 
+                            : "الرصيد النهائي المتبقي:"}
+                        </p>
+                        <p className={`text-base font-black font-mono mt-0.5 ${
+                          contactStats.status === 'debtor' 
+                            ? 'text-red-650' 
+                            : contactStats.status === 'creditor' 
+                            ? 'text-emerald-650' 
+                            : 'text-slate-600'
+                        }`}>
+                          {contactStats.outstanding.toLocaleString('en-US', { minimumFractionDigits: 2 })} جنيه سوداني
+                        </p>
                       </div>
                     </div>
 
@@ -4823,7 +4949,7 @@ export default function App() {
                           .map(c => {
                             // Calculates exact values for this contact
                             const entries = ledgers[c.id] || [];
-                            let totalInvoices = 0;
+                            let totalInvoices = c.oldBalance ? Number(c.oldBalance) : 0;
                             let totalPaid = 0;
                             entries.forEach(e => {
                               if (e.type === 'invoice') {
@@ -4870,12 +4996,29 @@ export default function App() {
                                   )}
                                 </td>
                                 <td className="p-3 text-center">
-                                  <button
-                                    onClick={() => setActiveContactId(c.id)}
-                                    className="bg-slate-900 hover:bg-[#0f172a]/90 text-white font-black text-[10px] px-2.5 py-1 rounded transition-all shadow-2xs cursor-pointer active:scale-95"
-                                  >
-                                    معاينة التفاصيل 🔍
-                                  </button>
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    <button
+                                      onClick={() => setActiveContactId(c.id)}
+                                      className="bg-slate-900 hover:bg-[#0f172a]/90 text-white font-black text-[10px] px-2.5 py-1 rounded transition-all shadow-2xs cursor-pointer active:scale-95"
+                                    >
+                                      معاينة التفاصيل 🔍
+                                    </button>
+                                    <button
+                                      onClick={() => handleTriggerEditContact(c)}
+                                      className="bg-amber-600 hover:bg-amber-500 text-white font-black text-[10px] px-2.5 py-1 rounded transition-all shadow-2xs cursor-pointer active:scale-95 flex items-center gap-1"
+                                      title="تعديل البيانات والرصيد الافتتاحي"
+                                    >
+                                      <Edit3 className="w-3 h-3" />
+                                      <span>تعديل</span>
+                                    </button>
+                                    <button
+                                      onClick={() => handleZeroOutContact(c.id)}
+                                      className="bg-rose-600 hover:bg-rose-700 text-white font-black text-[10px] px-2.5 py-1 rounded transition-all shadow-2xs cursor-pointer active:scale-95"
+                                      title="تصفير وتصفية حساب هذا الشريك"
+                                    >
+                                      تصفير ⚡
+                                    </button>
+                                  </div>
                                 </td>
                               </tr>
                             );
@@ -4949,6 +5092,175 @@ export default function App() {
         />
       )}
 
+      {/* Zero Out Contact Account Balance Modal */}
+      {zeroOutModalContactId && (() => {
+        const targetContact = contacts.find(c => c.id === zeroOutModalContactId);
+        if (!targetContact) return null;
+
+        const entries = ledgers[zeroOutModalContactId] || [];
+        let invs = 0;
+        let pds = 0;
+        entries.forEach(e => {
+          if (e.type === 'invoice') {
+            invs += e.total;
+            pds += e.paid;
+          } else if (e.type === 'payment') {
+            if (e.isRepayment) {
+              pds -= e.total;
+            } else {
+              pds += e.total;
+            }
+          }
+        });
+        const dff = invs - pds;
+        const absDff = Math.abs(dff);
+        const isCustomer = targetContact.type === 'customer';
+        const isSupplier = targetContact.type === 'supplier';
+
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn no-print">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
+              {/* Header */}
+              <div className="bg-slate-900 text-white p-4 flex items-center justify-between border-b border-slate-800 select-none">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-rose-500/20 rounded-xl text-rose-400">
+                    <CheckCircle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-sm text-slate-100">
+                      تصفير وتصفية حساب {isCustomer ? 'العميل' : isSupplier ? 'المورد' : 'العامل'}
+                    </h3>
+                    <p className="text-[11px] text-slate-400 font-semibold">{targetContact.name} ({targetContact.code})</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setZeroOutModalContactId(null)}
+                  className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors text-lg font-bold cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-5 space-y-4 text-right" dir="rtl">
+                {/* Financial Summary Cards */}
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2">
+                  <div className="flex justify-between items-center text-xs text-slate-600 font-bold border-b border-slate-200 pb-2">
+                    <span>{isCustomer ? 'إجمالي الفواتير والمبيعات' : isSupplier ? 'إجمالي المشتريات' : 'إجمالي المستحقات'}:</span>
+                    <span className="font-mono font-black text-slate-900">{invs.toLocaleString('en-US', { minimumFractionDigits: 2 })} {settings.currencySymbol || 'ج.س'}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs text-slate-600 font-bold border-b border-slate-200 pb-2">
+                    <span>إجمالي التحصيلات/المسدد:</span>
+                    <span className="font-mono font-black text-emerald-600">{pds.toLocaleString('en-US', { minimumFractionDigits: 2 })} {settings.currencySymbol || 'ج.س'}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs font-bold pt-1">
+                    <span className="text-slate-800 font-black">الرصيد المتبقي الحالي:</span>
+                    <span className={`font-mono font-black text-sm ${dff > 0.01 ? 'text-rose-600' : dff < -0.01 ? 'text-blue-600' : 'text-slate-500'}`}>
+                      {absDff < 0.01 ? '0.00' : absDff.toLocaleString('en-US', { minimumFractionDigits: 2 })} {settings.currencySymbol || 'ج.س'}
+                      {dff > 0.01 && <span className="text-[10px] text-rose-500 mr-1">({isCustomer ? 'مستحق للتحصيل - عليه' : 'مستحق السداد - له'})</span>}
+                      {dff < -0.01 && <span className="text-[10px] text-blue-500 mr-1">({isCustomer ? 'فائض تحصيل - له' : 'مدين لصالحنا - عليه'})</span>}
+                    </span>
+                  </div>
+                </div>
+
+                {absDff < 0.01 ? (
+                  <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-3.5 rounded-xl text-center text-xs font-bold">
+                    ✓ حساب {targetContact.name} مُصَفّى ومُتوازن بالكامل حالياً ولا يوجد أي متبقي.
+                  </div>
+                ) : (
+                  /* Method Selector for Option 1 */
+                  <div className="space-y-2 bg-blue-50/60 border border-blue-200 rounded-xl p-3.5">
+                    <div className="font-extrabold text-xs text-blue-900 flex items-center gap-1.5">
+                      <span>⚡ الخيار 1: تصفير بقيد تسوية مالي (موصى به)</span>
+                    </div>
+                    <p className="text-[11px] text-slate-600 leading-relaxed font-semibold">
+                      إصدار قيد تسوية مالي بقيمة <strong className="font-mono font-black text-blue-900">{absDff.toLocaleString('en-US', { minimumFractionDigits: 2 })} {settings.currencySymbol || 'ج.س'}</strong> ليتوازن الحساب تماماً ويصبح الرصيد صفراً مع الاحتفاظ بكافة السجلات السابقة.
+                    </p>
+
+                    <div className="pt-1 space-y-1">
+                      <label className="block text-[10px] font-black text-slate-600">طريقة التسوية:</label>
+                      <select
+                        value={zeroOutPaymentMethod}
+                        onChange={(e) => setZeroOutPaymentMethod(e.target.value as any)}
+                        className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 focus:outline-none focus:border-blue-500 cursor-pointer"
+                      >
+                        <option value="other">📝 تسوية ورقية إدارية (إسقاط/خصم بدون حركة نقدية في الخزنة)</option>
+                        <option value="cash">🏦 إيداع/سداد نقدي عبر الخزنة الرئيسية</option>
+                        <option value="bank">💳 تحويل عبر الحساب البنكي</option>
+                      </select>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleExecuteSettlement}
+                      className="w-full mt-2 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs py-2.5 rounded-xl cursor-pointer shadow-md transition-all active:scale-95 flex items-center justify-center gap-1.5 border border-blue-700"
+                    >
+                      <CheckCircle className="w-4 h-4 text-white" />
+                      <span>تنفيذ قيد التسوية وتصفير الحساب الآن</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Wipe records Option 2 - Always available */}
+                <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-3.5 space-y-2">
+                  <div className="font-extrabold text-xs text-amber-900 flex items-center gap-1">
+                    <span>🧹 الخيار 2: مسح وتفريغ السجل المحاسبي بالكامل</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 font-semibold leading-relaxed">
+                    حذف كافة الفواتير والسندات والحركات الماليّة المسجلة لـ "{targetContact.name}" والبدء بصفحة جديدة ناصعة برصيد صفر.
+                  </p>
+
+                  {!showWipeConfirm ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowWipeConfirm(true)}
+                      className="w-full bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs py-2.5 rounded-xl cursor-pointer shadow-xs transition-all active:scale-95 border border-amber-700 flex items-center justify-center gap-1"
+                    >
+                      <span>مسح كافة السجلات والبدء من جديد</span>
+                    </button>
+                  ) : (
+                    <div className="bg-rose-50 border border-rose-300 rounded-xl p-3 space-y-2 text-right animate-fadeIn">
+                      <p className="text-xs font-black text-rose-800">
+                        ⚠️ تأكيد نهائي: هل أنت متأكد تماماً من مسح وحذف جميع فواتير وسندات "{targetContact.name}" نهائياً وتصفير حسابه؟
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleWipeContactRecords}
+                          className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs py-2.5 rounded-lg cursor-pointer shadow-md transition-all active:scale-95 flex items-center justify-center gap-1"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-white" />
+                          <span>تأكيد مسح كافة الفواتير والسجلات الآن</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowWipeConfirm(false)}
+                          className="bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs px-3 py-2.5 rounded-lg transition-all cursor-pointer"
+                        >
+                          إلغاء
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="bg-slate-50 p-3.5 border-t border-slate-200 flex justify-end" dir="rtl">
+                <button
+                  type="button"
+                  onClick={() => setZeroOutModalContactId(null)}
+                  className="bg-slate-200 hover:bg-slate-300 text-slate-800 font-black text-xs px-5 py-2 rounded-xl transition-all cursor-pointer"
+                >
+                  إلغاء وإغلاق
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* 4. Add New Financier Contact Profile Registration Form */}
       {showAddContactModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in no-print">
@@ -4989,6 +5301,23 @@ export default function App() {
                   placeholder="+249 9X XXX XXXX"
                 />
               </div>
+
+              {(activeTab === 'customer' || activeTab === 'supplier') && (
+                <div>
+                  <label className="block text-[10px] font-extrabold text-amber-800 mb-1 flex items-center gap-1">
+                    <span>📌 متبقي حساب قديم (رصيد افتتاحي سابق إن وجد)</span>
+                  </label>
+                  <input 
+                    type="number"
+                    step="any"
+                    value={newContactOldBalance}
+                    onChange={(e) => setNewContactOldBalance(e.target.value)}
+                    className="w-full bg-amber-50/50 border border-amber-300 rounded px-2.5 py-1.5 outline-none focus:bg-white focus:border-amber-500 font-mono font-black text-amber-900 text-right"
+                    placeholder="0.00"
+                  />
+                  <span className="text-[9px] text-slate-400 block mt-0.5 font-bold">يتم ترحيل هذا المبلغ مباشرة لكشف الحساب كدين/رصيد سابق.</span>
+                </div>
+              )}
 
               <div className="pt-2.5 border-t border-slate-200 flex justify-end gap-2 text-xs">
                 <button 
@@ -5049,6 +5378,23 @@ export default function App() {
                   placeholder="+249 9X XXX XXXX"
                 />
               </div>
+
+              {editingContact.type !== 'worker' && (
+                <div>
+                  <label className="block text-[10px] font-extrabold text-amber-800 mb-1 flex items-center gap-1">
+                    <span>📌 متبقي حساب قديم (رصيد افتتاحي سابق)</span>
+                  </label>
+                  <input 
+                    type="number"
+                    step="any"
+                    value={editContactOldBalance}
+                    onChange={(e) => setEditContactOldBalance(e.target.value)}
+                    className="w-full bg-amber-50/50 border border-amber-300 rounded px-2.5 py-1.5 outline-none focus:bg-white focus:border-amber-500 font-mono font-black text-amber-900 text-right"
+                    placeholder="0.00"
+                  />
+                  <span className="text-[9px] text-slate-400 block mt-0.5 font-bold">تعديل قيمة الحساب القديم المتبقي للعميل/المورد (رصيد افتتاحي).</span>
+                </div>
+              )}
 
               {editingContact.type === 'worker' && (
                 <div>
@@ -5331,7 +5677,7 @@ export default function App() {
             {contacts.filter(c => c.type === activeTab).map((c, index) => {
               // Calculate stats for each contact
               const entries = ledgers[c.id] || [];
-              let totalInvoiced = 0;
+              let totalInvoiced = c.oldBalance ? Number(c.oldBalance) : 0;
               let totalPaid = 0;
               
               if (c.type === 'worker') {
@@ -5384,7 +5730,7 @@ export default function App() {
               <span className="font-mono text-xs text-slate-950">
                 {contacts.filter(c => c.type === activeTab).reduce((sum, c) => {
                   const entries = ledgers[c.id] || [];
-                  let total = 0;
+                  let total = c.oldBalance ? Number(c.oldBalance) : 0;
                   entries.forEach(e => {
                     if (c.type === 'worker') {
                       if (e.type === 'salary' || e.type === 'invoice') total += e.total;
@@ -5422,7 +5768,7 @@ export default function App() {
               <span className="font-mono text-xs text-rose-600">
                 {contacts.filter(c => c.type === activeTab).reduce((sum, c) => {
                   const entries = ledgers[c.id] || [];
-                  let totalInvoiced = 0;
+                  let totalInvoiced = c.oldBalance ? Number(c.oldBalance) : 0;
                   let totalPaid = 0;
                   entries.forEach(e => {
                     if (c.type === 'worker') {

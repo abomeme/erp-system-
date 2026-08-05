@@ -30,6 +30,7 @@ import {
   ProductPrice,
   User
 } from '../types';
+import { formatQty } from '../utils';
 
 export interface DamagedItem {
   id: string;
@@ -162,7 +163,7 @@ export default function InventoryTab({
 
   const handleSaveDamaged = (e: React.FormEvent) => {
     e.preventDefault();
-    const qtyNum = parseInt(damagedQty);
+    const qtyNum = parseFloat(damagedQty);
 
     if (isNaN(qtyNum) || qtyNum <= 0) {
       triggerToast("يرجى إدخال كمية تالفة صحيحة أكبر من الصفر", "err");
@@ -277,7 +278,7 @@ export default function InventoryTab({
 
   const handleSaveStock = (e: React.FormEvent) => {
     e.preventDefault();
-    const qtyNum = parseInt(stockQty);
+    const qtyNum = parseFloat(stockQty);
     const buyNum = parseFloat(stockBuyPrice);
     const sellNum = parseFloat(stockSellPrice);
 
@@ -564,7 +565,7 @@ export default function InventoryTab({
                       <td className="p-3 text-center text-amber-700 bg-amber-50/25">{itm.gradeName}</td>
                       <td className="p-3 text-center text-slate-500">{itm.unitName}</td>
                       <td className={`p-3 text-center font-mono font-black text-xs ${itm.qty <= 50 ? 'text-red-600 bg-red-50/30' : 'text-slate-900'}`}>
-                        {itm.qty.toLocaleString('en-US')}
+                        {formatQty(itm.qty)}
                       </td>
                       <td className="p-3 text-center font-mono text-xs text-slate-500">
                         {itm.buyPrice.toLocaleString('en-US', { minimumFractionDigits: 2 })} جنيه
@@ -830,7 +831,7 @@ export default function InventoryTab({
               <div className="grid grid-cols-3 gap-2.5">
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 mb-1">الكمية المدخلة *</label>
-                  <input type="number" required value={stockQty} onChange={(e) => setStockQty(e.target.value)} className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-center font-bold font-mono" />
+                  <input type="number" step="any" min="0.001" required value={stockQty} onChange={(e) => setStockQty(e.target.value)} className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-center font-bold font-mono" />
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 mb-1">سعر الشراء (تاريخي) *</label>
